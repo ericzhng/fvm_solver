@@ -24,6 +24,31 @@ class GodunovSolver:
             return (a * b + abs(a * b)) / (a + b + 1e-10)
         return 0
 
+    def mc(self, a, b):
+        if a * b > 0:
+            return max(0, min((a + b) / 2, 2 * a, 2 * b))
+        return 0
+
+    def koren(self, a, b):
+        if a * b > 0:
+            return max(0, min(2 * a, (2 * a + b) / 3, 2 * b))
+        return 0
+
+    def osher(self, a, b, beta=2.0):
+        if a * b > 0:
+            return max(0, min(a, beta * b))
+        return 0
+
+    def sweby(self, a, b, beta=1.5):
+        if a * b > 0:
+            return max(0, min(beta * a, b), min(a, beta * b))
+        return 0
+
+    def umist(self, a, b):
+        if a * b > 0:
+            return max(0, min(2 * a, (a + 3 * b) / 4, (3 * a + b) / 4, 2 * b))
+        return 0
+
     def get_limiter(self, a, b):
         if self.limiter == 'minmod':
             return self.minmod(a, b)
@@ -31,6 +56,16 @@ class GodunovSolver:
             return self.superbee(a, b)
         elif self.limiter == 'van_leer':
             return self.van_leer(a, b)
+        elif self.limiter == 'mc':
+            return self.mc(a, b)
+        elif self.limiter == 'koren':
+            return self.koren(a, b)
+        elif self.limiter == 'osher':
+            return self.osher(a, b)
+        elif self.limiter == 'sweby':
+            return self.sweby(a, b)
+        elif self.limiter == 'umist':
+            return self.umist(a, b)
         else:
             raise ValueError("Unsupported limiter")
 

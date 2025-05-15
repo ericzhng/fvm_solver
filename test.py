@@ -22,10 +22,15 @@ def run_test(equation_system, test_name, n_cells=100, t_final=0.1, snapshot_inte
         ('muscl', 'minmod'),
         ('muscl', 'superbee'),
         ('muscl', 'van_leer'),
+        ('muscl', 'mc'),
+        ('muscl', 'koren'),
+        ('muscl', 'osher'),
+        ('muscl', 'sweby'),
+        ('muscl', 'umist'),
         ('ppm', 'minmod'),
         ('weno5', 'minmod')
     ]
-    for flux_method in ['HLLC', 'Roe']:  # Limit to HLLC and Roe for brevity
+    for flux_method in ['HLLC', 'Roe']:  # Limit to HLLC and Roe
         for recon_method, limiter in reconstruction_methods:
             solver = GodunovSolver(equation_system=equation_system, flux_method=flux_method, limiter=limiter, reconstruction_method=recon_method, cfl=cfl, bc_type='transmissive')
             t = 0
