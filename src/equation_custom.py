@@ -9,10 +9,6 @@ class CustomSystem(EquationSystem):
         self.monitored_index = 0
         self.safeguarded_indices = [0]
     
-    def compute_flux(self, U: np.ndarray, W: np.ndarray) -> np.ndarray:
-        # Example flux (replace with actual system)
-        return np.array([W[0] * W[1], W[1]**2 + self.param1 * W[0]])
-    
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         # Example
         return np.array([W[0], W[0] * W[1]])
@@ -43,6 +39,10 @@ class CustomSystem(EquationSystem):
         # Sound speed: max eigenvalue magnitude, adjusted for velocity
         u = W[self.velocity_index]
         return np.max(np.abs(eigenvalues - u))
+    
+    def compute_flux(self, U: np.ndarray, W: np.ndarray) -> np.ndarray:
+        # Example flux (replace with actual system)
+        return np.array([W[0] * W[1], W[1]**2 + self.param1 * W[0]])
     
     def get_variable_names(self) -> list:
         return ['var1', 'velocity']

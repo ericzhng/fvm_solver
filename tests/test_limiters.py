@@ -1,25 +1,36 @@
-import pytest
-import numpy as np
+import unittest
 from src.limiters import Limiter
 
-@pytest.fixture
-def limiter():
-    return Limiter()
 
-def test_minmod(limiter):
-    assert limiter.minmod(1, 2) == 1
-    assert limiter.minmod(-1, -2) == -1
-    assert limiter.minmod(1, -1) == 0
+class TestLimiters(unittest.TestCase):
+    """Unit tests for Limiter class methods."""
 
-def test_superbee(limiter):
-    assert limiter.superbee(1, 2) == 2
-    assert limiter.superbee(0.5, 1) == 1
-    assert limiter.superbee(1, -1) == 0
+    def test_minmod_limiter(self):
+        """Test minmod limiter behavior."""
+        limiter = Limiter('minmod')
+        self.assertEqual(limiter.limit(1.0, 2.0), 1.0)  # Same sign, smaller magnitude
+        self.assertEqual(limiter.limit(-1.0, 2.0), 0.0)  # Opposite signs
+        self.assertEqual(limiter.limit(2.0, 1.0), 1.0)  # Same sign, smaller magnitude
 
-def test_van_leer(limiter):
-    assert abs(limiter.van_leer(1, 1) - 1) < 1e-10
-    assert limiter.van_leer(1, -1) == 0
-    assert abs(limiter.van_leer(2, 4) - 8/3) < 1e-10
+    def test_superbee_limiter(self):
+        """Test superbee limiter behavior."""
+        limiter = Limiter('superbee')
+        self.assertEqual(limiter.limit(1.0, 2.0), 2.0)  # Maximizes within constraints
+        self.assertEqual(limiter.limit(-1.0, 2.0), 0.0)  # Opposite signs
+        self.assertEqual(limiter.limit(0.5, 1.0), 1.0)  # Maximizes within constraints
+
+    def test_vanleer_limiter(self):
+        """Test van Leer limiter behavior."""
+        limiter = Limiter('vanleer')
+        self.assertAlmostEqual(limiter.limit(1.0, 2.0), 4.0 / 3.0, places=5)  # Harmonic mean
+        self.assertEqual(limiter.limit(-1.0, 2.0), 0.0)  # Opposite signs
+        self.assertAlmostEqual(limiter.limit(1.0, 1.0), 1.0, places=5)  # Equal slopes
+
+    def test_none_limiter(self):
+        """Test no limiter behavior."""
+        limiter = Limiter('none')
+        self.assertEqual(limiter.limit(1.0, 2.0), 1.0)  # Returns first slope
+        self.assertEqual(limiter.limit(-1.0, 2.0), -1.0)  # Returns first slope
 
 def test_mc(limiter):
     assert limiter.mc(1, 2) == 1.5
@@ -50,3 +61,6 @@ def test_get_limiter(limiter):
     assert limiter.get_limiter('minmod') == limiter.minmod
     with pytest.raises(ValueError):
         limiter.get_limiter('invalid')
+
+if __name__ == '__main__':
+    unittest.main()
