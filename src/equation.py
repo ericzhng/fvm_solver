@@ -7,10 +7,14 @@ class EquationSystem:
     def to_conservative(self, W):
         raise NotImplementedError
 
+    # balances computational efficiency and clarity in the numerical implementation
     def compute_flux(self, U, W):
         raise NotImplementedError
 
     def sound_speed(self, W):
+        raise NotImplementedError
+
+    def velocity(self, W):
         raise NotImplementedError
 
     def get_variable_names(self):
@@ -40,6 +44,9 @@ class ShallowWaterSystem(EquationSystem):
     def sound_speed(self, W):
         h = max(W[0], self.h_min)
         return np.sqrt(self.g * h)
+
+    def velocity(self, W):
+        return np.sqrt(W[1])
 
     def get_variable_names(self):
         return ['Height', 'Velocity']
@@ -75,6 +82,9 @@ class EulerEquationSystem(EquationSystem):
         rho = max(W[0], self.rho_min)
         p = max(W[2], self.p_min)
         return np.sqrt(self.gamma * p / rho)
+
+    def velocity(self, W):
+        return np.sqrt(W[1])
 
     def get_variable_names(self):
         return ['Density', 'Velocity', 'Pressure']
