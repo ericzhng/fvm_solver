@@ -12,10 +12,10 @@ def parse_args():
     Returns:
         argparse.Namespace: Parsed arguments.
     """
-    parser = argparse.ArgumentParser(description='1D Hyperbolic Conservation Law Solver')
-    parser.add_argument('--equation', type=str, default='isentropic',
+    parser = argparse.ArgumentParser(description='Finite Volumne based Riemann Solver for 1D Hyperbolic Conservation Law')
+    parser.add_argument('--equation', type=str, default='euler',
                         choices=['isentropic', 'shallow_water', 'euler'],
-                        help='Equation system to solve')
+                        help='specify the equation system to solve')
     parser.add_argument('--nx', type=int, default=100, help='Number of grid points')
     parser.add_argument('--T', type=float, default=0.2, help='Final simulation time')
     parser.add_argument('--cfl', type=float, default=0.5, help='CFL number')
@@ -38,9 +38,9 @@ def main():
 
     # Select equation system
     equation_systems = {
+        'euler': EulerEquationSystem(gamma=1.4),
         'isentropic': IsentropicGasSystem(gamma=1.4, k=1.0),
         'shallow_water': ShallowWaterSystem(g=9.81),
-        'euler': EulerEquationSystem(gamma=1.4)
     }
     equation = equation_systems[args.equation]
 
@@ -58,15 +58,19 @@ def main():
     n_vars = len(equation.get_variable_names())
     W = np.zeros((n_vars, args.nx))
 
+    totalT = args.T
+
     # Set initial conditions based on equation system
     if args.equation == 'isentropic':
         W[0, :args.nx//2] = 2.0  # Higher density left
         W[0, args.nx//2:] = 1.0  # Lower density right
         W[1, :] = 0.0  # Zero velocity
+
     elif args.equation == 'shallow_water':
         W[0, :] = 1.0  # Constant height
         W[1, :args.nx//2] = 0.5  # Positive velocity left
         W[1, args.nx//2:] = -0.5  # Negative velocity right
+
     else:  # euler
         W[0, :] = 1.0  # Baseline density
         W[1, :] = 0.0  # Zero velocity
@@ -77,8 +81,9 @@ def main():
     U0 = np.array([equation.to_conservative(W[:, i]) for i in range(args.nx)]).T
 
     # Solve and plot
-    U_history, final_t = solver.solve(U0, x, args.T, n_ghost=2)
-    solver.plot_solution(U_history, x, args.T, filename=args.output)
+    U_history, final_t = solver.solve(U0, x, totalT, n_ghost=2)
+    print(f"Final simulation time reached: {final_t:.4f}")
+    solver.plot_solution(U_history, x, totalT, filename=args.output)
 
 
 if __name__ == '__main__':

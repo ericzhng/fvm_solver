@@ -2,6 +2,16 @@ import numpy as np
 from .equation import EquationSystem
 
 
+def numerical_jacobian(F, U, h=1e-6):
+    n = len(U)
+    A = np.zeros((n, n))
+    for j in range(n):
+        U_plus = U.copy(); U_plus[j] += h
+        U_minus = U.copy(); U_minus[j] -= h
+        A[:, j] = (F(U_plus) - F(U_minus)) / (2 * h)
+    return A
+
+
 class Flux:
     """Class to compute numerical fluxes for hyperbolic conservation laws.
 
@@ -69,6 +79,7 @@ class Flux:
         """
         if self._is_invalid_state(UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
+        
         FL = self.equation_system.compute_flux(UL, WL)
         FR = self.equation_system.compute_flux(UR, WR)
         return 0.5 * (FL + FR - self.lambda_max * (UR - UL))
@@ -97,10 +108,12 @@ class Flux:
             abs(WL[self.velocity_index]) + self.equation_system.sound_speed(WL),
             abs(WR[self.velocity_index]) + self.equation_system.sound_speed(WR)
         ) if self.velocity_index is not None else self.lambda_max
+
         return 0.5 * (FL + FR - lambda_local * (UR - UL))
 
     def force(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
         """Compute FORCE flux (average of Lax-Friedrichs and Richtmyer).
+        First-Order Centered
 
         F = 0.5 * (F_LF + F_Richtmyer)
 
@@ -126,7 +139,7 @@ class Flux:
         # Lax-Friedrichs component
         F_LF = 0.5 * (FL + FR - lambda_max * (UR - UL))
         # Richtmyer component
-        U_mid = 0.5 * (UL + UR) - 0.5 * (FR - FL) / (lambda_max + 1e-10)
+        U_mid = 0.5 * (UL + UR) - 0.5 * (FR - FL) / (lambda_max + self.min_var)
         W_mid = self.equation_system.to_primitive(U_mid)
         F_Richtmyer = self.equation_system.compute_flux(U_mid, W_mid)
         return 0.5 * (F_LF + F_Richtmyer)
@@ -161,8 +174,7 @@ class Flux:
             return FL
         if SR <= 0:
             return FR
-
-        return (SR * FL - SL * FR + SL * SR * (UR - UL)) / (SR - SL + 1e-10)
+        return (SR * FL - SL * FR + SL * SR * (UR - UL)) / (SR - SL + self.min_var)
 
     def hllc(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
         """Compute HLLC flux with intermediate states.
@@ -208,7 +220,6 @@ class Flux:
         Returns:
             np.ndarray: Numerical flux.
         """
-
         if self._is_invalid_state(UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
 
@@ -224,6 +235,53 @@ class Flux:
             # Apply entropy fix
             lambda_i = lambda_i if abs(lambda_i) > delta else 0.5 * (lambda_i + np.sqrt(lambda_i**2 + delta**2))
             dissipative_term += abs(lambda_i) * alpha[i] * eigenvectors[i]
+        return 0.5 * (FL + FR - dissipative_term)
+
+    def roe_general(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
+        """Compute Roe flux for a general hyperbolic system.
+
+        Args:
+            UL (np.ndarray): Left conservative state.
+            UR (np.ndarray): Right conservative state.
+            WL (np.ndarray): Left primitive state.
+            WR (np.ndarray): Right primitive state.
+
+        Returns:
+            np.ndarray: Roe numerical flux.
+        """
+        # Compute fluxes
+        FL = self.equation_system.compute_flux(UL, WL)
+        FR = self.equation_system.compute_flux(UR, WR)
+        
+        # Roe average (default: primitive variable averaging)
+        W_tilde = 0.5 * (WL + WR)
+        U_tilde = self.equation_system.to_conservative(W_tilde)
+        
+        # Numerical Jacobian
+        A = numerical_jacobian(
+            lambda U: self.equation_system.compute_flux(U, self.equation_system.to_primitive(U)),
+            U_tilde
+        )
+        
+        # Eigenstructure
+        eigenvalues, R = np.linalg.eig(A)
+        delta = 0.1 * np.max(np.abs(eigenvalues))
+        eigenvalues = np.where(
+            np.abs(eigenvalues) > delta,
+            eigenvalues,
+            0.5 * (eigenvalues + np.sqrt(eigenvalues**2 + delta**2))
+        )
+        
+        # Wave strengths
+        delta_U = UR - UL
+        alpha = np.linalg.solve(R, delta_U)
+        
+        # Dissipative term
+        dissipative_term = np.zeros_like(UL)
+        for i in range(len(eigenvalues)):
+            dissipative_term += abs(eigenvalues[i]) * alpha[i] * R[:, i]
+        
+        # Roe flux
         return 0.5 * (FL + FR - dissipative_term)
 
     def get_flux(self, flux_type: str):
@@ -244,7 +302,8 @@ class Flux:
             'force': self.force,
             'hll': self.hll,
             'hllc': self.hllc,
-            'roe': self.roe
+            'roe': self.roe,
+            'roe_general': self.roe_general
         }
         if flux_type not in flux_methods:
             raise ValueError(f"Unsupported flux type: {flux_type}. Choose from {list(flux_methods.keys())}")

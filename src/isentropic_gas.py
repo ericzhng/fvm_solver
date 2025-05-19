@@ -106,7 +106,7 @@ class IsentropicGasSystem(EquationSystem):
         pL = self.k * rhoL**self.gamma
         pR = self.k * rhoR**self.gamma
         denom = rhoL * (S_L - uL) - rhoR * (S_R - uR)
-        S_star = 0.5 * (uL + uR) if abs(denom) < 1e-10 else (
+        S_star = 0.5 * (uL + uR) if abs(denom) < self.min_var else (
             pR - pL + rhoL * uL * (S_L - uL) - rhoR * uR * (S_R - uR)
         ) / denom
         return S_L, S_R, S_star
@@ -132,8 +132,8 @@ class IsentropicGasSystem(EquationSystem):
         rhoL = np.maximum(rhoL, self.min_var)
         rhoR = np.maximum(rhoR, self.min_var)
         # Intermediate density
-        rho_star_L = rhoL * (S_L - uL) / (S_L - S_star + 1e-10)
-        rho_star_R = rhoR * (S_R - uR) / (S_R - S_star + 1e-10)
+        rho_star_L = rhoL * (S_L - uL) / (S_L - S_star + self.min_var)
+        rho_star_R = rhoR * (S_R - uR) / (S_R - S_star + self.min_var)
         # Intermediate states: [rho, rho*u]
         UL_star = np.array([rho_star_L, rho_star_L * S_star])
         UR_star = np.array([rho_star_R, rho_star_R * S_star])
@@ -143,7 +143,7 @@ class IsentropicGasSystem(EquationSystem):
         rhoL, uL = WL
         rhoR, uR = WR
         rho_roe = np.sqrt(rhoL * rhoR)
-        u_roe = (uL * np.sqrt(rhoL) + uR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + 1e-10)
+        u_roe = (uL * np.sqrt(rhoL) + uR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
         c_roe = self.sound_speed(np.array([rho_roe, u_roe]))
         return np.array([rho_roe, u_roe, c_roe])
     
@@ -182,6 +182,6 @@ class IsentropicGasSystem(EquationSystem):
         """
         rho_roe, u_roe, c_roe = self.roe_averaged_state(WL, WR)
         delta_U = UR - UL
-        alpha_2 = (delta_U[0] * (u_roe - c_roe) - delta_U[1]) / (-2 * c_roe + 1e-10)
+        alpha_2 = (delta_U[0] * (u_roe - c_roe) - delta_U[1]) / (-2 * c_roe + self.min_var)
         alpha_1 = delta_U[0] - alpha_2
         return np.array([alpha_1, alpha_2])

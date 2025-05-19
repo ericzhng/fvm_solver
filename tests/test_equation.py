@@ -38,6 +38,7 @@ class TestEquationSystems(unittest.TestCase):
         expected = np.sqrt(self.isentropic.gamma * self.isentropic.k * W[0]**(self.isentropic.gamma - 1))
         self.assertAlmostEqual(c, expected, places=5)
 
+
     def test_shallow_water_conversions(self):
         """Test conversions between primitive and conservative variables for ShallowWaterSystem."""
         W = np.array([1.0, 0.5])  # [height, velocity]
@@ -45,6 +46,7 @@ class TestEquationSystems(unittest.TestCase):
         np.testing.assert_array_almost_equal(U, [1.0, 0.5], decimal=5)
         W_back = self.shallow_water.to_primitive(U)
         np.testing.assert_array_almost_equal(W_back, W, decimal=5)
+
 
     def test_euler_conversions(self):
         """Test conversions between primitive and conservative variables for EulerEquationSystem."""

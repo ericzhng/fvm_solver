@@ -1,0 +1,150 @@
+\documentclass[12pt]{article}
+
+% Setting up the geometry of the document
+\usepackage[margin=1in]{geometry}
+
+% Including necessary packages for mathematical typesetting
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+
+% Supporting advanced text and paragraph formatting
+\usepackage{parskip}
+
+% Ensuring proper encoding and font support
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+% Setting up the font
+\usepackage{noto}
+
+% Defining the title, author, and date
+\title{Hyperbolic Conservation Laws: Equation Systems}
+\author{}
+\date{May 16, 2025}
+
+\begin{document}
+
+\maketitle
+
+% Introducing the document's purpose
+\section*{Introduction}
+This document presents the mathematical formulations of three hyperbolic conservation law systems: the Isentropic Gas System, the Shallow Water System, and the Euler Equation System. Each system is described in conservative form, $\partial_t \mathbf{U} + \partial_x \mathbf{F}(\mathbf{U}) = 0$, with conservative variables $\mathbf{U}$, primitive variables $\mathbf{W}$, fluxes $\mathbf{F}(\mathbf{U})$, and sound speeds.
+
+% Describing the Isentropic Gas System
+\section{Isentropic Gas System}
+\subsection{Conservative Variables}
+\[
+\mathbf{U} = \begin{bmatrix} \rho \\ m \end{bmatrix} = \begin{bmatrix} \rho \\ \rho u \end{bmatrix}
+\]
+\begin{itemize}
+    \item $\rho$: Density
+    \item $m = \rho u$: Momentum
+    \item $u$: Velocity (primitive variable)
+\end{itemize}
+
+\subsection{Primitive Variables}
+\[
+\mathbf{W} = \begin{bmatrix} \rho \\ u \end{bmatrix}, \quad \mathbf{U} = \begin{bmatrix} \rho \\ \rho u \end{bmatrix}, \quad \mathbf{W} = \begin{bmatrix} \rho \\ \frac{m}{\rho} \end{bmatrix}
+\]
+
+\subsection{Flux}
+\[
+\mathbf{F}(\mathbf{U}) = \begin{bmatrix} \rho u \\ \rho u^2 + p \end{bmatrix}, \quad p = k \rho^\gamma
+\]
+\begin{itemize}
+    \item $p$: Pressure, with $k$ (gas constant, default: 1.0) and $\gamma$ (specific heat ratio, default: 1.4)
+\end{itemize}
+
+\subsection{Conservation Law}
+\[
+\partial_t \begin{bmatrix} \rho \\ \rho u \end{bmatrix} + \partial_x \begin{bmatrix} \rho u \\ \rho u^2 + k \rho^\gamma \end{bmatrix} = 0
+\]
+
+\subsection{Sound Speed}
+\[
+c = \sqrt{\gamma k \rho^{\gamma - 1}}
+\]
+
+% Describing the Shallow Water System
+\section{Shallow Water System}
+\subsection{Conservative Variables}
+\[
+\mathbf{U} = \begin{bmatrix} h \\ m \end{bmatrix} = \begin{bmatrix} h \\ h u \end{bmatrix}
+\]
+\begin{itemize}
+    \item $h$: Water height
+    \item $m = h u$: Momentum
+    \item $u$: Velocity (primitive variable)
+\end{itemize}
+
+\subsection{Primitive Variables}
+\[
+\mathbf{W} = \begin{bmatrix} h \\ u \end{bmatrix}, \quad \mathbf{U} = \begin{bmatrix} h \\ h u \end{bmatrix}, \quad \mathbf{W} = \begin{bmatrix} h \\ \frac{m}{h} \end{bmatrix}
+\]
+
+\subsection{Flux}
+\[
+\mathbf{F}(\mathbf{U}) = \begin{bmatrix} h u \\ h u^2 + \frac{1}{2} g h^2 \end{bmatrix}
+\]
+\begin{itemize}
+    \item $g$: Gravitational acceleration (default: 9.81 m/s$^2$)
+    \item $\frac{1}{2} g h^2$: Hydrostatic pressure term
+\end{itemize}
+
+\subsection{Conservation Law}
+\[
+\partial_t \begin{bmatrix} h \\ h u \end{bmatrix} + \partial_x \begin{bmatrix} h u \\ h u^2 + \frac{1}{2} g h^2 \end{bmatrix} = 0
+\]
+
+\subsection{Sound Speed}
+\[
+c = \sqrt{g h}
+\]
+
+% Describing the Euler Equation System
+\section{Euler Equation System}
+\subsection{Conservative Variables}
+\[
+\mathbf{U} = \begin{bmatrix} \rho \\ m \\ E \end{bmatrix} = \begin{bmatrix} \rho \\ \rho u \\ E \end{bmatrix}
+\]
+\begin{itemize}
+    \item $\rho$: Density
+    \item $m = \rho u$: Momentum
+    \item $E$: Total energy per unit volume
+    \item $u$: Velocity (primitive variable)
+    \item $p$: Pressure (primitive variable)
+\end{itemize}
+
+\subsection{Primitive Variables}
+\[
+\mathbf{W} = \begin{bmatrix} \rho \\ u \\ p \end{bmatrix}, \quad \mathbf{U} = \begin{bmatrix} \rho \\ \rho u \\ \frac{p}{\gamma - 1} + \frac{1}{2} \rho u^2 \end{bmatrix}, \quad \mathbf{W} = \begin{bmatrix} \rho \\ \frac{m}{\rho} \\ (\gamma - 1) \left( E - \frac{1}{2} \frac{m^2}{\rho} \right) \end{bmatrix}
+\]
+\begin{itemize}
+    \item $\gamma$: Specific heat ratio (default: 1.4)
+\end{itemize}
+
+\subsection{Flux}
+\[
+\mathbf{F}(\mathbf{U}) = \begin{bmatrix} \rho u \\ \rho u^2 + p \\ u (E + p) \end{bmatrix}
+\]
+
+\subsection{Conservation Law}
+\[
+\partial_t \begin{bmatrix} \rho \\ \rho u \\ E \end{bmatrix} + \partial_x \begin{bmatrix} \rho u \\ \rho u^2 + p \\ u (E + p) \end{bmatrix} = 0
+\]
+
+\subsection{Sound Speed}
+\[
+c = \sqrt{\frac{\gamma p}{\rho}}
+\]
+
+% Adding notes for context
+\section*{Notes}
+\begin{itemize}
+    \item These formulations correspond to the implementations in \texttt{isentropic\_gas.py}, \texttt{shallow\_water.py}, and \texttt{euler.py}.
+    \item Numerical safeguards ensure $\rho, h, p > 10^{-10}$ to prevent division by zero or negative values.
+    \item The systems are solved using Godunov-type methods with fluxes (e.g., HLLC, Roe), reconstructions (e.g., WENO5), and boundary conditions (periodic, reflective, transmissive).
+\end{itemize}
+
+\end{document}

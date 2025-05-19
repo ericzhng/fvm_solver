@@ -105,6 +105,7 @@ class Solver:
         n_vars, n_cells = U.shape
         U_ext = np.zeros((n_vars, n_cells + 2 * n_ghost))
         U_ext[:, n_ghost:-n_ghost] = U
+        
         velocity_idx = self.equation_system.velocity_index
         for i in range(n_ghost):
             # Left boundary

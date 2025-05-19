@@ -19,16 +19,29 @@ class Limiter:
         self.limiters = {
             'minmod': self.minmod,
             'superbee': self.superbee,
-            'van_leer': self.van_leer,
+            'vanleer': self.van_leer,
             'mc': self.mc,
             'koren': self.koren,
             'osher': self.osher,
             'sweby': self.sweby,
-            'umist': self.umist
+            'umist': self.umist,
+            'none': self.no_limiter,
         }
 
         if self.limiter_type not in self.limiters:
             raise ValueError(f"Unsupported limiter: {self.limiter_type}. Choose from {list(self.limiters.keys())}")
+
+    def limit(self, a: float, b: float) -> float:
+        """Apply the limiter to two slopes.
+
+        Args:
+            a (float): First slope.
+            b (float): Second slope.
+
+        Returns:
+            float: Limited slope.
+        """
+        return self.limiters[self.limiter_type](a, b)
 
     def minmod(self, a: float, b: float) -> float:
         """Minmod limiter: most dissipative.
@@ -78,7 +91,7 @@ class Limiter:
             return 0.0
         return 2 * a * b / (a + b + 1e-10)
 
-    def mc(a: float, b: float) -> float:
+    def mc(self, a: float, b: float) -> float:
         """Monotonized Central limiter: Balanced, less diffusive than minmod.
         
         Args:
@@ -88,11 +101,11 @@ class Limiter:
         Returns:
             Limited slope
         """
-        if a * b > 0:
-            return max(0, min((a + b) / 2, 2 * a, 2 * b))
-        return 0
+        if a * b <= 0:
+            return 0
+        return max(0, min((a + b) / 2, 2 * a, 2 * b))
 
-    def koren(a: float, b: float) -> float:
+    def koren(self, a: float, b: float) -> float:
         """Koren limiter: Third-order in smooth regions.
         
         Args:
@@ -102,11 +115,11 @@ class Limiter:
         Returns:
             Limited slope
         """
-        if a * b > 0:
-            return max(0, min(2 * a, (2 * a + b) / 3, 2 * b))
-        return 0
+        if a * b <= 0:
+            return 0
+        return max(0, min(2 * a, (2 * a + b) / 3, 2 * b))
 
-    def osher(a: float, b: float, beta: float = 2.0) -> float:
+    def osher(self, a: float, b: float, beta: float = 2.0) -> float:
         """Osher limiter: Adjustable sharpness via beta.
         
         Args:
@@ -117,11 +130,11 @@ class Limiter:
         Returns:
             Limited slope
         """
-        if a * b > 0:
-            return max(0, min(a, beta * b))
-        return 0
+        if a * b <= 0:
+            return 0
+        return max(0, min(a, beta * b))
 
-    def sweby(a: float, b: float, beta: float = 1.5) -> float:
+    def sweby(self, a: float, b: float, beta: float = 1.5) -> float:
         """Sweby limiter: Tunable between minmod and superbee.
         
         Args:
@@ -132,13 +145,15 @@ class Limiter:
         Returns:
             Limited slope
         """
-        if a * b > 0:
-            return max(0, min(beta * a, b), min(a, beta * b))
-        return 0
+        if a * b <= 0:
+            return 0
+        return max(0, min(beta * a, b), min(a, beta * b))
 
-    def umist(a: float, b: float) -> float:
+    def umist(self, a: float, b: float) -> float:
         """UMIST limiter: Smooth, similar to Koren.
-        
+
+        Upstream Monotonic Interpolation for Scalar Transport
+
         Args:
             a: Left slope
             b: Right slope
@@ -146,7 +161,19 @@ class Limiter:
         Returns:
             Limited slope
         """
-        if a * b > 0:
-            return max(0, min(2 * a, (a + 3 * b) / 4, (3 * a + b) / 4, 2 * b))
-        return 0
+        if a * b <= 0:
+            return 0
+        return max(0, min(2 * a, (a + 3 * b) / 4, (3 * a + b) / 4, 2 * b))
 
+    def no_limiter(self, a: float, b: float) -> float:
+        """No limiter: returns first slope unchanged.
+
+        Args:
+            a (float): First slope.
+            b (float): Second slope (ignored).
+
+        Returns:
+            float: Unchanged first slope.
+        """
+        return a
+    

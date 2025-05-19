@@ -82,7 +82,6 @@ class EquationSystem:
         Returns:
             tuple: Left, right, and contact wave speeds (S_L, S_R, S_star).
         """
-
         cL = self.sound_speed(WL)
         cR = self.sound_speed(WR)
 
@@ -130,7 +129,12 @@ class EquationSystem:
 
 
     def roe_averaged_state(self, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute Roe-averaged state variables numerically (numerical default).
+        """Compute Roe-averaged state variables.
+
+        Typically use parameter vector for averaging, usually analytically.
+        If no parameter vector is known, then use Arithmetic Mean.
+        Sometimes use primitive variable averaging, like what's used here.
+        Another way is to use numerical Jacobian to compute Roe-averaged state.
 
         Args:
             WL (np.ndarray): Left primitive state.
@@ -145,8 +149,7 @@ class EquationSystem:
         W_roe = self.to_primitive(U_roe)
         c_roe = self.sound_speed(W_roe)
         return np.array([W_roe[self.velocity_index], c_roe])
-    
-
+        
     def roe_eigenstructure(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute Roe eigenstructure (numerical default).
 
@@ -170,6 +173,23 @@ class EquationSystem:
         delta = 0.1 * c_roe
         return eigenvalues, eigenvectors, delta
 
+    def roe_eigenstructure_2(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+        """Compute Roe eigenstructure (numerical default).
+
+        Args:
+            WL (np.ndarray): Left primitive state.
+            WR (np.ndarray): Right primitive state.
+            UL (np.ndarray): Left conservative state.
+            UR (np.ndarray): Right conservative state.
+
+        Returns:
+            tuple: Eigenvalues, eigenvectors, and entropy fix parameter (delta).
+        """
+        n = len(WL)
+        eigenvalues = np.zeros(n)
+        eigenvectors = np.eye(n)
+        delta = 0.0
+        return eigenvalues, eigenvectors, delta
 
     def roe_wave_strengths(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """Compute Roe wave strengths (numerical default).
@@ -188,3 +208,17 @@ class EquationSystem:
         # Simple numerical approximation: equal distribution of jump
         alpha = delta_U / (n_vars + 1e-10)
         return alpha[:n_vars]
+
+    def roe_wave_strengths_2(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
+        """Compute Roe wave strengths (numerical default).
+
+        Args:
+            WL (np.ndarray): Left primitive state.
+            WR (np.ndarray): Right primitive state.
+            UL (np.ndarray): Left conservative state.
+            UR (np.ndarray): Right conservative state.
+
+        Returns:
+            np.ndarray: Wave strength coefficients (alpha).
+        """
+        return np.zeros(len(WL))

@@ -144,12 +144,12 @@ class ShallowWaterSystem(EquationSystem):
         hL, uL = WL
         hR, uR = WR
         h_roe = np.sqrt(hL * hR)
-        u_roe = (uL * np.sqrt(hL) + uR * np.sqrt(hR)) / (np.sqrt(hL) + np.sqrt(hR) + 1e-10)
+        u_roe = (uL * np.sqrt(hL) + uR * np.sqrt(hR)) / (np.sqrt(hL) + np.sqrt(hR) + self.min_var)
         c_roe = np.sqrt(self.g * h_roe)
         return np.array([h_roe, u_roe, c_roe])
     
     def roe_eigenstructure(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
-        h_roe, u_roe, c_roe = self.roe_averaged_state(WL, WR)
+        _, u_roe, c_roe = self.roe_averaged_state(WL, WR)
         eigenvalues = np.array([u_roe - c_roe, u_roe + c_roe])
         eigenvectors = [
             np.array([1, u_roe - c_roe]),
@@ -159,8 +159,8 @@ class ShallowWaterSystem(EquationSystem):
         return eigenvalues, eigenvectors, delta
     
     def roe_wave_strengths(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        h_roe, u_roe, c_roe = self.roe_averaged_state(WL, WR)
+        _, u_roe, c_roe = self.roe_averaged_state(WL, WR)
         delta_U = UR - UL
-        alpha_2 = (delta_U[0] * (u_roe - c_roe) - delta_U[1]) / (-2 * c_roe + 1e-10)
+        alpha_2 = (delta_U[0] * (u_roe - c_roe) - delta_U[1]) / (-2 * c_roe + self.min_var)
         alpha_1 = delta_U[0] - alpha_2
         return np.array([alpha_1, alpha_2])

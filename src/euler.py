@@ -113,9 +113,8 @@ class EulerEquationSystem(EquationSystem):
 
         # Contact wave speed
         denom = rhoL * (S_L - uL) - rhoR * (S_R - uR)
-        S_star = 0.5 * (uL + uR) if abs(denom) < self.min_var else (
-            pR - pL + rhoL * uL * (S_L - uL) - rhoR * uR * (S_R - uR)
-        ) / denom
+        S_star = 0.5 * (uL + uR) if abs(denom) < self.min_var else ( 
+            pR - pL + rhoL * uL * (S_L - uL) - rhoR * uR * (S_R - uR) ) / denom
 
         return S_L, S_R, S_star
 
@@ -143,25 +142,15 @@ class EulerEquationSystem(EquationSystem):
         pR = np.maximum(pR, self.min_var)
 
         # Intermediate states
-        rho_star_L = rhoL * (S_L - uL) / (S_L - S_star + self.min_var)
-        rho_star_R = rhoR * (S_R - uR) / (S_R - S_star + self.min_var)
-
-        p_star = 0.5 * (pL + pR)  # Approximate
-        E_star_L = (UL[2] * (S_L - uL) + p_star * S_star - pL * uL) / (S_L - S_star + self.min_var)
-        E_star_R = (UR[2] * (S_R - uR) + p_star * S_star - pR * uR) / (S_R - S_star + self.min_var)
-        UL_star = np.array([rho_star_L, rho_star_L * S_star, E_star_L])
-        UR_star = np.array([rho_star_R, rho_star_R * S_star, E_star_R])
-
-        # rhoL_star = max(rhoL * (S_L - uL) / (S_L - S_star + self.min_var), self.min_var)
-        # rhoR_star = max(rhoR * (S_R - uR) / (S_R - S_star + self.min_var), self.min_var)
-        # EL = UL[2] / (rhoL + self.min_var) + (S_star - uL) * (S_star + pL / (rhoL * (S_L - uL) + self.min_var))
-        # ER = UR[2] / (rhoR + self.min_var) + (S_star - uR) * (S_star + pR / (rhoR * (S_R - uR) + self.min_var))
-        # UL_star = np.array([rhoL_star, rhoL_star * S_star, rhoL_star * EL])
-        # UR_star = np.array([rhoR_star, rhoR_star * S_star, rhoR_star * ER])
+        rhoL_star = max(rhoL * (S_L - uL) / (S_L - S_star + self.min_var), self.min_var)
+        rhoR_star = max(rhoR * (S_R - uR) / (S_R - S_star + self.min_var), self.min_var)
+        EL = UL[2] / (rhoL + self.min_var) + (S_star - uL) * (S_star + pL / (rhoL * (S_L - uL) + self.min_var))
+        ER = UR[2] / (rhoR + self.min_var) + (S_star - uR) * (S_star + pR / (rhoR * (S_R - uR) + self.min_var))
+        UL_star = np.array([rhoL_star, rhoL_star * S_star, rhoL_star * EL])
+        UR_star = np.array([rhoR_star, rhoR_star * S_star, rhoR_star * ER])
 
         return UL_star, UR_star
 
-    
     def roe_averaged_state(self, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
         rhoL, uL, pL = WL
         rhoR, uR, pR = WR
@@ -173,7 +162,6 @@ class EulerEquationSystem(EquationSystem):
         c_roe = np.sqrt((self.gamma - 1) * (h_roe - 0.5 * u_roe**2))
         return np.array([rho_roe, u_roe, h_roe, c_roe])
     
-
     def roe_eigenstructure(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         _, u_roe, h_roe, c_roe = self.roe_averaged_state(WL, WR)
         eigenvalues = np.array([u_roe - c_roe, u_roe, u_roe + c_roe])
@@ -184,7 +172,6 @@ class EulerEquationSystem(EquationSystem):
         ]
         delta = 0.1 * c_roe
         return eigenvalues, eigenvectors, delta
-    
     
     def roe_wave_strengths(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         _, u_roe, h_roe, c_roe = self.roe_averaged_state(WL, WR)
