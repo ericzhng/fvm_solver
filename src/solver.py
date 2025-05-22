@@ -3,152 +3,95 @@ import matplotlib.pyplot as plt
 from .equation import EquationSystem
 from .fluxes import Flux
 from .reconstructions import Reconstruction
+from .boundary_conditions import BoundaryCondition
 
 
 class Solver:
-    """Godunov-type solver for hyperbolic conservation laws.
+    """Godunov-type solver for 1D hyperbolic conservation laws.
 
-    Solves 1D systems using specified flux and reconstruction methods.
+    Integrates systems using specified flux, reconstruction, and boundary conditions.
     """
 
-    def __init__(self, equation_system: EquationSystem, flux: str = 'HLLC', reconstruction: str = 'weno5',
-                 cfl: float = 0.5, bc_type: str = 'periodic'):
+    def __init__(self, equation_system: EquationSystem, flux: str = 'hllc', reconstruction: str = 'weno5',
+                 cfl: float = 0.5, bc_type: str = 'periodic', limiter: str = 'minmod'):
         """Initialize the solver.
 
         Args:
             equation_system (EquationSystem): The equation system to solve.
-            flux (str): Flux method ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe').
+            flux (str): Flux method ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe', 'roe_general').
             reconstruction (str): Reconstruction method ('piecewise_constant', 'muscl', 'ppm', 'weno5').
-            cfl (float): Courant-Friedrichs-Lewy number (default: 0.5).
-            bc_type (str): Boundary condition type ('periodic', 'reflective', 'transmissive').
+            cfl (float): CFL number for time step control (default: 0.5).
+            bc_type (str): Boundary condition type ('periodic', 'reflective', 'dirichlet', 'neumann').
+            limiter (str): Limiter for MUSCL reconstruction (default: 'minmod').
 
         Raises:
             TypeError: If equation_system is not an EquationSystem instance.
-            ValueError: If flux, reconstruction, or bc_type is unsupported.
+            ValueError: If flux, reconstruction, or bc_type is unsupported, or cfl <= 0.
         """
         if not isinstance(equation_system, EquationSystem):
-            raise TypeError("equation_system must be an instance of EquationSystem")
+            raise TypeError("equation_system must be an EquationSystem instance")
+        if cfl <= 0:
+            raise ValueError("cfl must be positive")
         self.equation_system = equation_system
-        self.flux = Flux(equation_system, lambda_max=1.0).get_flux(flux)
-        self.reconstruction = Reconstruction(equation_system, limiter='minmod' if reconstruction == 'muscl' else None)
+        self.flux = Flux(equation_system, lambda_max=1.0).get_flux(flux.lower())
+        self.reconstruction = Reconstruction(equation_system, limiter=limiter if reconstruction.lower() == 'muscl' else None)
         self.reconstruction_method = {
             'piecewise_constant': self.reconstruction.piecewise_constant,
             'muscl': self.reconstruction.muscl,
             'ppm': self.reconstruction.ppm,
             'weno5': self.reconstruction.weno5
-        }[reconstruction]
+        }[reconstruction.lower()]
         self.cfl = cfl
+        self.bc = BoundaryCondition(equation_system, bc_type.lower())
         self.variable_names = equation_system.get_variable_names()
-        self.bc_type = bc_type
-
-        # Boundary condition handlers
-        self.bc_handlers = {
-            'periodic': self.apply_periodic_bc,
-            'reflective': self.apply_reflective_bc,
-            'transmissive': self.apply_transmissive_bc
-        }
-        if bc_type not in self.bc_handlers:
-            raise ValueError(f"Unsupported boundary condition: {bc_type}. Choose from {list(self.bc_handlers.keys())}")
 
     def compute_dt(self, U: np.ndarray, dx: float) -> float:
         """Compute time step based on CFL condition.
 
-        dt = CFL * dx / max_speed
+        Formula: dt = CFL * dx / max(|velocity| + sound_speed)
 
         Args:
-            U (np.ndarray): Conservative variables [n_vars, n_cells].
+            U (np.ndarray): Conservative variables, shape (n_vars, n_cells).
             dx (float): Spatial grid spacing.
 
         Returns:
             float: Time step size.
+
+        Raises:
+            ValueError: If dx <= 0 or U shape is invalid.
         """
+        if dx <= 0:
+            raise ValueError("dx must be positive")
+        if U.ndim != 2 or U.shape[0] != self.equation_system.n_vars:
+            raise ValueError(f"U must have shape ({self.equation_system.n_vars}, n_cells)")
         n_cells = U.shape[1]
-        W = np.array([self.equation_system.to_primitive(U[:, i]) for i in range(n_cells)]).T
-        # Maximum wave speed: |velocity| + sound speed
-        max_speed = np.max(np.abs(W[self.equation_system.velocity_index]) + self.equation_system.sound_speed(W))
-        # Adjust CFL for high-order methods
-        adaptive_cfl = min(self.cfl, 0.4 if self.reconstruction_method.__name__ == 'weno5' else self.cfl)
-        return adaptive_cfl * dx / (max_speed + 1e-10)
+        W = self._to_primitive_array(U)
+        max_speed = 0.0
+        for i in range(n_cells):
+            speed = abs(W[self.equation_system.velocity_index, i]) + self.equation_system.sound_speed(W[:, i])
+            max_speed = max(max_speed, speed)
+        adaptive_cfl = min(
+            self.cfl,
+            0.4 if self.reconstruction_method.__name__ == 'weno5' else 0.2 if self.reconstruction_method.__name__ == 'ppm' else self.cfl
+        )
+        return adaptive_cfl * dx / (max_speed + self.equation_system.min_var)
 
-    def apply_periodic_bc(self, U: np.ndarray, n_ghost: int) -> np.ndarray:
-        """Apply periodic boundary conditions.
-
-        Copies states from opposite ends to ghost cells.
-
-        Args:
-            U (np.ndarray): Conservative variables [n_vars, n_cells].
-            n_ghost (int): Number of ghost cells per side.
-
-        Returns:
-            np.ndarray: Extended state array with ghost cells.
-        """
-        n_vars, n_cells = U.shape
-        U_ext = np.zeros((n_vars, n_cells + 2 * n_ghost))
-        U_ext[:, n_ghost:-n_ghost] = U
-        for i in range(n_ghost):
-            U_ext[:, i] = U[:, -n_ghost + i]  # Left ghost cells
-            U_ext[:, -n_ghost + i] = U[:, i]  # Right ghost cells
-        return U_ext
-
-    def apply_reflective_bc(self, U: np.ndarray, n_ghost: int) -> np.ndarray:
-        """Apply reflective boundary conditions.
-
-        Mirrors states and negates velocity at boundaries.
+    def _to_primitive_array(self, U: np.ndarray) -> np.ndarray:
+        """Convert conservative variables to primitive variables for all cells.
 
         Args:
-            U (np.ndarray): Conservative variables [n_vars, n_cells].
-            n_ghost (int): Number of ghost cells per side.
+            U (np.ndarray): Conservative variables, shape (n_vars, n_cells).
 
         Returns:
-            np.ndarray: Extended state array with ghost cells.
+            np.ndarray: Primitive variables, shape (n_vars, n_cells).
         """
-        n_vars, n_cells = U.shape
-        U_ext = np.zeros((n_vars, n_cells + 2 * n_ghost))
-        U_ext[:, n_ghost:-n_ghost] = U
-        
-        velocity_idx = self.equation_system.velocity_index
-        for i in range(n_ghost):
-            # Left boundary
-            U_ext[:, i] = U[:, n_ghost - 1 - i]
-            if velocity_idx is not None:
-                U_ext[velocity_idx, i] = -U[velocity_idx, n_ghost - 1 - i]
-            # Right boundary
-            U_ext[:, -n_ghost + i] = U[:, -i - 1]
-            if velocity_idx is not None:
-                U_ext[velocity_idx, -n_ghost + i] = -U[velocity_idx, -i - 1]
-        return U_ext
-
-    def apply_transmissive_bc(self, U: np.ndarray, n_ghost: int) -> np.ndarray:
-        """Apply transmissive boundary conditions.
-
-        Copies boundary states to ghost cells (zero gradient).
-
-        Args:
-            U (np.ndarray): Conservative variables [n_vars, n_cells].
-            n_ghost (int): Number of ghost cells per side.
-
-        Returns:
-            np.ndarray: Extended state array with ghost cells.
-        """
-        n_vars, n_cells = U.shape
-        U_ext = np.zeros((n_vars, n_cells + 2 * n_ghost))
-        U_ext[:, n_ghost:-n_ghost] = U
-        for i in range(n_ghost):
-            U_ext[:, i] = U[:, 0]  # Left ghost cells
-            U_ext[:, -n_ghost + i] = U[:, -1]  # Right ghost cells
-        return U_ext
-
-    def apply_boundary_conditions(self, U: np.ndarray, n_ghost: int) -> np.ndarray:
-        """Apply the selected boundary condition.
-
-        Args:
-            U (np.ndarray): Conservative variables [n_vars, n_cells].
-            n_ghost (int): Number of ghost cells per side.
-
-        Returns:
-            np.ndarray: Extended state array with ghost cells.
-        """
-        return self.bc_handlers[self.bc_type](U, n_ghost)
+        if U.ndim != 2 or U.shape[0] != self.equation_system.n_vars:
+            raise ValueError(f"U must have shape ({self.equation_system.n_vars}, n_cells)")
+        n_cells = U.shape[1]
+        W = np.zeros_like(U)
+        for i in range(n_cells):
+            W[:, i] = self.equation_system.to_primitive(U[:, i])
+        return W
 
     def solve(self, U0: np.ndarray, x: np.ndarray, T: float, n_ghost: int = 2) -> tuple:
         """Solve the hyperbolic system until time T.
@@ -156,62 +99,95 @@ class Solver:
         Uses Godunov-type method with specified flux and reconstruction.
 
         Args:
-            U0 (np.ndarray): Initial conservative variables [n_vars, n_cells].
+            U0 (np.ndarray): Initial conservative variables, shape (n_vars, n_cells).
             x (np.ndarray): Spatial grid points.
             T (float): Final simulation time.
             n_ghost (int): Number of ghost cells per side (default: 2).
 
         Returns:
-            tuple: Solution history (array of states) and final time.
+            tuple: (history, t), where history is array of states [n_steps, n_vars, n_cells], t is final time.
+
+        Raises:
+            ValueError: If inputs are invalid or n_ghost is insufficient.
         """
+        if T < 0:
+            raise ValueError("T must be non-negative")
+        if x.size < 2:
+            raise ValueError("x must have at least 2 points")
+        if U0.ndim != 2 or U0.shape[0] != self.equation_system.n_vars:
+            raise ValueError(f"U0 must have shape ({self.equation_system.n_vars}, n_cells)")
+        min_ghost = 2 if self.reconstruction_method.__name__ in ['ppm', 'weno5'] else 1
+        if n_ghost < min_ghost:
+            raise ValueError(f"n_ghost must be at least {min_ghost} for {self.reconstruction_method.__name__}")
+
         dx = x[1] - x[0]
+        n_cells = U0.shape[1]
+        n_vars = self.equation_system.n_vars
         U = U0.copy()
         t = 0.0
         history = [U.copy()]
+
         while t < T:
-            dt = min(self.compute_dt(U, dx), T - t)
             # Apply boundary conditions
-            U_ext = self.apply_boundary_conditions(U, n_ghost)
-            W_ext = np.array([self.equation_system.to_primitive(U_ext[:, i]) for i in range(U_ext.shape[1])]).T
-            # Reconstruct states
-            UL, UR = self.reconstruction_method(U_ext, dx)
+            U_ext = self.bc.apply_bcs(U, n_ghost)
+
+            # Compute time step
+            dt = min(self.compute_dt(U, dx), T - t)
+
+            # Reconstruct states at interfaces
+            WL, WR = self.reconstruction_method(U_ext, n_ghost)
+            UL = np.zeros_like(WL)
+            UR = np.zeros_like(WR)
+            for i in range(WL.shape[1]):
+                UL[:, i] = self.equation_system.to_conservative(WL[:, i])
+                UR[:, i] = self.equation_system.to_conservative(WR[:, i])
+
             # Compute fluxes
-            F = np.zeros_like(UL)
-            for i in range(F.shape[1]):
-                F[:, i] = self.flux(UL[:, i], UR[:, i], W_ext[:, i + n_ghost - 1], W_ext[:, i + n_ghost])
+            F = np.zeros((n_vars, n_cells + 1))
+            for i in range(n_cells + 1):
+                F[:, i] = self.flux(UL[:, i], UR[:, i], WL[:, i], WR[:, i])
+
             # Update solution
-            for i in range(U.shape[1]):
-                U[:, i] -= dt / dx * (F[:, i + 1] - F[:, i])
+            U_new = U - (dt / dx) * (F[:, 1:] - F[:, :-1])
+            for idx in self.equation_system.safeguarded_indices:
+                U_new[idx, :] = np.maximum(U_new[idx, :], self.equation_system.min_var)
+            U = U_new
             t += dt
             history.append(U.copy())
+
         return np.array(history), t
 
-    def plot_solution(self, U_history: np.ndarray, x: np.ndarray, T: float, filename: str = None,
-                     plot_indices: list = None):
-        """Plot the solution evolution for selected variables.
+    def plot_solution(self, history: np.ndarray, x: np.ndarray, t: float, variable: str = None):
+        """Plot the solution at the final time.
 
         Args:
-            U_history (np.ndarray): Solution history [n_steps, n_vars, n_cells].
+            history (np.ndarray): Solution history, shape (n_steps, n_vars, n_cells).
             x (np.ndarray): Spatial grid points.
-            T (float): Final simulation time.
-            filename (str, optional): File to save the plot.
-            plot_indices (list, optional): Indices of variables to plot.
+            t (float): Final time.
+            variable (str): Variable to plot (optional, default: all variables).
+
+        Raises:
+            ValueError: If variable is invalid or history shape is incorrect.
         """
-        plot_indices = plot_indices or list(range(U_history.shape[1]))
-        fig, axs = plt.subplots(len(plot_indices), 1, figsize=(10, 3 * len(plot_indices)))
-        if len(plot_indices) == 1:
-            axs = [axs]
-        for idx, var_idx in enumerate(plot_indices):
-            # Plot every 10th step to reduce clutter
-            for U in U_history[::max(1, len(U_history) // 10)]:
-                W = self.equation_system.to_primitive(U[:, var_idx])
-                axs[idx].plot(x, W, label=f't={U_history.shape[0] * T / len(U_history):.2f}')
-            axs[idx].set_xlabel('x')
-            axs[idx].set_ylabel(self.variable_names[var_idx])
-            axs[idx].legend()
-        plt.tight_layout()
-        if filename:
-            plt.savefig(filename)
-            plt.close()
+        if history.ndim != 3 or history.shape[1] != self.equation_system.n_vars:
+            raise ValueError(f"history must have shape (n_steps, {self.equation_system.n_vars}, n_cells)")
+        U_final = history[-1]
+        W_final = self._to_primitive_array(U_final)
+        idx = None
+        if variable:
+            if variable not in self.variable_names:
+                raise ValueError(f"Variable {variable} not in {self.variable_names}")
+            idx = self.variable_names.index(variable)
+            plt.plot(x, W_final[idx, :], label=variable)
+            plt.xlabel('x')
+            plt.ylabel(variable)
+            plt.title(f'{variable} at t = {t:.3f}')
         else:
-            plt.show()
+            for i, name in enumerate(self.variable_names):
+                plt.plot(x, W_final[i, :], label=name)
+            plt.xlabel('x')
+            plt.ylabel('Variables')
+            plt.title(f'Solution at t = {t:.3f}')
+        plt.legend()
+        plt.grid(True)
+        plt.show()

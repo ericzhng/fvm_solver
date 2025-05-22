@@ -13,9 +13,10 @@ class EquationSystem:
         self.min_var = min_var  # Minimum value for numerical stability
         self.velocity_index = None
         self.monitored_index = None
-        self.safeguarded_indices : list[int] = []
-        self.variable_names : list[str] = []
-
+        self.safeguarded_indices: list[int] = []
+        self.variable_names: list[str] = []
+        self.n_vars = 0  # Number of variables, to be set by subclasses
+    
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """Convert primitive variables to conservative variables.
 
@@ -26,7 +27,7 @@ class EquationSystem:
             np.ndarray: Conservative variables.
         """
         raise NotImplementedError
-
+    
     def to_primitive(self, U: np.ndarray) -> np.ndarray:
         """Convert conservative variables to primitive variables.
 
@@ -68,7 +69,6 @@ class EquationSystem:
             list: List of variable names.
         """
         return self.variable_names
-
 
     def hllc_wave_speeds(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute HLLC wave speeds (numerical default).
@@ -127,6 +127,39 @@ class EquationSystem:
 
         return UL_star, UR_star
 
+    def hllc_states_and_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+        """Compute HLLC wave speeds, intermediate states, and flux (numerical default).
+
+        Args:
+            WL (np.ndarray): Left primitive state.
+            WR (np.ndarray): Right primitive state.
+            UL (np.ndarray): Left conservative state.
+            UR (np.ndarray): Right conservative state.
+
+        Returns:
+            tuple: (S_L, S_R, S_star, UL_star, UR_star, F), where:
+                - S_L, S_R, S_star: Left, right, and contact wave speeds.
+                - UL_star, UR_star: Left and right intermediate conservative states.
+                - F: HLLC numerical flux.
+        """
+        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
+            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
+
+        S_L, S_R, S_star = self.hllc_wave_speeds(WL, WR, UL, UR)
+        UL_star, UR_star = self.hllc_intermediate_states(WL, WR, UL, UR, S_L, S_R, S_star)
+        FL = self.compute_flux(UL, WL)
+        FR = self.compute_flux(UR, WR)
+        
+        if S_L >= 0:
+            F = FL
+        elif S_L <= 0 <= S_star:
+            F = FL + S_L * (UL_star - UL)
+        elif S_star <= 0 <= S_R:
+            F = FR + S_R * (UR_star - UR)
+        else:
+            F = FR
+
+        return S_L, S_R, S_star, UL_star, UR_star, F
 
     def roe_averaged_state(self, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
         """Compute Roe-averaged state variables.
@@ -222,3 +255,45 @@ class EquationSystem:
             np.ndarray: Wave strength coefficients (alpha).
         """
         return np.zeros(len(WL))
+    
+    def roe_states_and_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+        """Compute Roe-averaged state, eigenstructure, wave strengths, and flux (numerical default).
+
+        Args:
+            WL (np.ndarray): Left primitive state.
+            WR (np.ndarray): Right primitive state.
+            UL (np.ndarray): Left conservative state.
+            UR (np.ndarray): Right conservative state.
+
+        Returns:
+            tuple: (var1_roe, var2_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F), where:
+                - var1_roe, var2_roe: Roe-averaged variables (e.g., u_roe for velocity, h_roe or rho_roe).
+                - c_roe: Roe-averaged sound speed.
+                - eigenvalues: Roe eigenvalues.
+                - eigenvectors: Roe eigenvectors.
+                - delta: Entropy fix parameter.
+                - wave_strengths: Wave strength coefficients.
+                - F: Roe numerical flux.
+        """
+        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
+            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
+
+        # Roe-averaged state
+        u_roe, c_roe = self.roe_averaged_state(WL, WR)
+        var1_roe = u_roe  # For consistency, could be velocity or another variable
+        var2_roe = None  # Placeholder, to be overridden by subclasses (e.g., h_roe for shallow water)
+
+        # Eigenstructure and wave strengths
+        eigenvalues, eigenvectors, delta = self.roe_eigenstructure(WL, WR, UL, UR)
+        wave_strengths = self.roe_wave_strengths(WL, WR, UL, UR)
+
+        # Compute flux
+        FL = self.compute_flux(UL, WL)
+        FR = self.compute_flux(UR, WR)
+        abs_A = np.zeros_like(FL)
+        for i in range(len(eigenvalues)):
+            abs_lambda = abs(eigenvalues[i]) if abs(eigenvalues[i]) > delta else (eigenvalues[i]**2 + delta**2) / (2 * delta)
+            abs_A += abs_lambda * wave_strengths[i] * eigenvectors[i]
+        F = 0.5 * (FL + FR - abs_A)
+
+        return var1_roe, var2_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F

@@ -1,5 +1,5 @@
 import numpy as np
-from .equation import EquationSystem
+from ..src.equation import EquationSystem
 
 class CustomSystem(EquationSystem):
     def __init__(self, param1, min_var=1e-10):

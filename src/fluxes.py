@@ -40,7 +40,6 @@ class Flux:
         Returns:
             True if any safeguarded conservative variable is below threshold
         """
-
         for idx in self.safeguarded_indices:
             if UL[idx] <= self.min_var or UR[idx] <= self.min_var:
                 return True
@@ -190,21 +189,10 @@ class Flux:
         """
         if self._is_invalid_state(UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
-
-        # Compute wave speeds and intermediate states
-        S_L, S_R, S_star = self.equation_system.hllc_wave_speeds(WL, WR, UL, UR)
-        UL_star, UR_star = self.equation_system.hllc_intermediate_states(WL, WR, UL, UR, S_L, S_R, S_star)
-        FL = self.equation_system.compute_flux(UL, WL)
-        FR = self.equation_system.compute_flux(UR, WR)
-        # Select flux based on wave speeds
-        if S_L >= 0:
-            return FL
-        elif S_L <= 0 <= S_star:
-            return FL + S_L * (UL_star - UL)
-        elif S_star <= 0 <= S_R:
-            return FR + S_R * (UR_star - UR)
-        else:
-            return FR
+        
+        # Use equation system's hllc_states_and_flux
+        _, _, _, _, _, F = self.equation_system.hllc_states_and_flux(WL, WR, UL, UR)
+        return F
 
     def roe(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
         """Compute Roe flux with entropy fix.
@@ -222,20 +210,9 @@ class Flux:
         """
         if self._is_invalid_state(UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
-
-        FL = self.equation_system.compute_flux(UL, WL)
-        FR = self.equation_system.compute_flux(UR, WR)
-        # Roe eigenstructure
-        eigenvalues, eigenvectors, delta = self.equation_system.roe_eigenstructure(WL, WR, UL, UR)
-        alpha = self.equation_system.roe_wave_strengths(WL, WR, UL, UR)
-        # Dissipative term with entropy fix
-        dissipative_term = np.zeros_like(UL)
-        for i in range(len(eigenvalues)):
-            lambda_i = eigenvalues[i]
-            # Apply entropy fix
-            lambda_i = lambda_i if abs(lambda_i) > delta else 0.5 * (lambda_i + np.sqrt(lambda_i**2 + delta**2))
-            dissipative_term += abs(lambda_i) * alpha[i] * eigenvectors[i]
-        return 0.5 * (FL + FR - dissipative_term)
+        # Use equation system's roe_states_and_flux
+        _, _, _, _, _, _, _, F = self.equation_system.roe_states_and_flux(WL, WR, UL, UR)
+        return F
 
     def roe_general(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
         """Compute Roe flux for a general hyperbolic system.
