@@ -1,6 +1,8 @@
 
 src/__pycache__/*
 
+**/trunk
+
 **/*.py[cod]
 *.egg-info
 *.egg
