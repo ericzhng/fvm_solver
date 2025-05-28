@@ -45,6 +45,14 @@ class Solver:
         self.bc = BoundaryCondition(equation_system, bc_type.lower())
         self.variable_names = equation_system.get_variable_names()
 
+    def specify_bc(self, left: float, right: float):
+        self.bc.left_values = left
+        self.bc.right_values = right
+
+    def specify_dx(self, x: np.ndarray):
+        dx = x[1] - x[0]
+        self.bc.dx = dx
+
     def compute_dt(self, U: np.ndarray, dx: float) -> float:
         """Compute time step based on CFL condition.
 
@@ -128,6 +136,7 @@ class Solver:
         history = [U.copy()]
 
         while t < T:
+            print(f"Time: {t:.3f}")
             # Apply boundary conditions
             U_ext = self.bc.apply_bcs(U, n_ghost)
 
@@ -152,7 +161,9 @@ class Solver:
             for idx in self.equation_system.safeguarded_indices:
                 U_new[idx, :] = np.maximum(U_new[idx, :], self.equation_system.min_var)
             U = U_new
+
             t += dt
+
             history.append(U.copy())
 
         return np.array(history), t
@@ -169,6 +180,7 @@ class Solver:
         Raises:
             ValueError: If variable is invalid or history shape is incorrect.
         """
+        xmid = (x[1:] + x[:-1]) / 2
         if history.ndim != 3 or history.shape[1] != self.equation_system.n_vars:
             raise ValueError(f"history must have shape (n_steps, {self.equation_system.n_vars}, n_cells)")
         U_final = history[-1]
@@ -178,13 +190,13 @@ class Solver:
             if variable not in self.variable_names:
                 raise ValueError(f"Variable {variable} not in {self.variable_names}")
             idx = self.variable_names.index(variable)
-            plt.plot(x, W_final[idx, :], label=variable)
+            plt.plot(xmid, W_final[idx, :], label=variable)
             plt.xlabel('x')
             plt.ylabel(variable)
             plt.title(f'{variable} at t = {t:.3f}')
         else:
             for i, name in enumerate(self.variable_names):
-                plt.plot(x, W_final[i, :], label=name)
+                plt.plot(xmid, W_final[i, :], label=name)
             plt.xlabel('x')
             plt.ylabel('Variables')
             plt.title(f'Solution at t = {t:.3f}')

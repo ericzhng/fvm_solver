@@ -69,9 +69,10 @@ class BoundaryCondition:
         if U.ndim != 2 or U.shape[0] != self.equation_system.n_vars:
             raise ValueError(f"U must have shape ({self.equation_system.n_vars}, n_cells + 2*n_ghost)")
 
-        n_vars, n_cells_total = U.shape
-        n_cells = n_cells_total - 2 * n_ghost
-        U_new = np.copy(U)  # Copy to avoid modifying input
+        n_vars, n_cells = U.shape
+        n_cells_total = n_cells + 2 * n_ghost
+        U_new = np.zeros([n_vars, n_cells_total])      # Copy to avoid modifying input
+        U_new[:, n_ghost:n_ghost + n_cells] = U      # Copy to avoid modifying input
 
         if self.bc_type == 'dirichlet':
             # Set ghost cells to fixed primitive values, convert to conservative
@@ -82,13 +83,15 @@ class BoundaryCondition:
 
         elif self.bc_type == 'neumann':
             # Enforce gradient in primitive variables
-            W = self.equation_system.to_primitive(U.T).T  # Convert all cells to primitive
+            W_bc_left = self.equation_system.to_primitive(U[:,0])  # Convert all cells to primitive
+            W_bc_right = self.equation_system.to_primitive(U[:,-1])  # Convert all cells to primitive
             for i in range(n_ghost):
                 # Left: W_i = W_n_ghost - (n_ghost - i) * dx * gradient
-                W_left = W[:, n_ghost] - (n_ghost - i) * self.dx * self.left_values
+                W_left = W_bc_left - (n_ghost - i) * self.dx * self.left_values
                 U_new[:, i] = self.equation_system.to_conservative(W_left)
+
                 # Right: W_{n_cells+n_ghost+i} = W_{n_cells+n_ghost-1} + (i + 1) * dx * gradient
-                W_right = W[:, n_cells + n_ghost - 1] + (i + 1) * self.dx * self.right_values
+                W_right = W_bc_right + (i + 1) * self.dx * self.right_values
                 U_new[:, n_cells + n_ghost + i] = self.equation_system.to_conservative(W_right)
 
         elif self.bc_type == 'periodic':
@@ -97,17 +100,21 @@ class BoundaryCondition:
             U_new[:, n_cells + n_ghost:] = U_new[:, n_ghost:2 * n_ghost]
 
         elif self.bc_type == 'reflective':
+            # Convert all cells to primitive
+            W_bc_left = self.equation_system.to_primitive(U[:,0])
+            W_bc_right = self.equation_system.to_primitive(U[:,-1])
+
             # Reflect velocity, copy other variables
             if self.equation_system.velocity_index is None:
                 raise ValueError("Reflective BC requires a valid velocity_index")
-            W = self.equation_system.to_primitive(U.T).T
+
             for i in range(n_ghost):
                 # Left: Mirror state, negate velocity
-                W_left = W[:, n_ghost].copy()
+                W_left = W_bc_left.copy()
                 W_left[self.equation_system.velocity_index] = -W_left[self.equation_system.velocity_index]
                 U_new[:, i] = self.equation_system.to_conservative(W_left)
                 # Right: Mirror state, negate velocity
-                W_right = W[:, n_cells + n_ghost - 1].copy()
+                W_right = W_bc_right.copy()
                 W_right[self.equation_system.velocity_index] = -W_right[self.equation_system.velocity_index]
                 U_new[:, n_cells + n_ghost + i] = self.equation_system.to_conservative(W_right)
 

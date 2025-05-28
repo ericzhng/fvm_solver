@@ -49,15 +49,15 @@ class Reconstruction:
         """Convert primitive interface values to conservative states.
 
         Args:
-            W_L (np.ndarray): Left primitive values, shape (n_vars, n_cells - 1).
-            W_R (np.ndarray): Right primitive values, shape (n_vars, n_cells - 1).
+            W_L (np.ndarray): Left primitive values, shape (n_vars, n_cells).
+            W_R (np.ndarray): Right primitive values, shape (n_vars, n_cells).
             n_cells (int): Number of physical cells.
 
         Returns:
-            tuple: (UL, UR), conservative states, each shape (n_vars, n_cells - 1).
+            tuple: (UL, UR), conservative states, each shape (n_vars, n_cells).
         """
-        UL = np.array([self.equation_system.to_conservative(W_L[:, i]) for i in range(n_cells - 1)]).T
-        UR = np.array([self.equation_system.to_conservative(W_R[:, i]) for i in range(n_cells - 1)]).T
+        UL = np.array([self.equation_system.to_conservative(W_L[:, i]) for i in range(n_cells)]).T
+        UR = np.array([self.equation_system.to_conservative(W_R[:, i]) for i in range(n_cells)]).T
         return UL, UR
 
     def _validate_input(self, U: np.ndarray, n_ghost: int):
@@ -86,7 +86,7 @@ class Reconstruction:
             n_ghost (int): Number of ghost cells per side (default: 2).
 
         Returns:
-            tuple: (UL, UR), left and right states, each shape (n_vars, n_cells - 1).
+            tuple: (UL, UR), left and right states, each shape (n_vars, n_cells + 2).
 
         Raises:
             ValueError: If n_ghost < 1 or dx <= 0.
@@ -98,8 +98,12 @@ class Reconstruction:
         self._validate_input(U, n_ghost)
         n_vars, n_cells_total = U.shape
         n_cells = n_cells_total - 2 * n_ghost
-        UL = U[:, n_ghost:n_cells + n_ghost]
-        UR = U[:, n_ghost + 1:n_cells + n_ghost + 1]
+
+        UL = np.zeros((n_vars, n_cells + 1))
+        UR = np.zeros((n_vars, n_cells + 1))
+        UL[:, :] = U[:, n_ghost - 1:n_cells + n_ghost]
+        UR[:, :] = U[:, n_ghost + 0:n_cells + n_ghost + 1]
+
         return UL, UR
 
     def muscl(self, U: np.ndarray, dx: float, n_ghost: int = 2) -> tuple:
@@ -113,7 +117,7 @@ class Reconstruction:
             n_ghost (int): Number of ghost cells per side (default: 2).
 
         Returns:
-            tuple: (UL, UR), left and right states, each shape (n_vars, n_cells - 1).
+            tuple: (UL, UR), left and right states, each shape (n_vars, n_cells).
 
         Raises:
             ValueError: If n_ghost < 1 or dx <= 0.
@@ -123,28 +127,25 @@ class Reconstruction:
         if dx <= 0:
             raise ValueError("dx must be positive")
         self._validate_input(U, n_ghost)
+
         n_vars, n_cells_total = U.shape
         n_cells = n_cells_total - 2 * n_ghost
+
         W = self._to_primitive_array(U)
-        W_L = np.zeros((n_vars, n_cells - 1))
-        W_R = np.zeros((n_vars, n_cells - 1))
+        W_L = np.zeros((n_vars, n_cells + 1))
+        W_R = np.zeros((n_vars, n_cells + 1))
 
         # Vectorized slope computation
         for j in range(n_vars):
-            sigma_L = np.zeros(n_cells - 1)
-            sigma_R = np.zeros(n_cells - 1)
+            slopes = np.zeros(n_cells + 1)
             if self.limiter:
-                left_slopes = (W[j, n_ghost:n_cells + n_ghost] - W[j, n_ghost - 1:n_cells + n_ghost - 1]) / dx
-                right_slopes = (W[j, n_ghost + 1:n_cells + n_ghost + 1] - W[j, n_ghost:n_cells + n_ghost]) / dx
-                sigma_L = self.limiter.limit(left_slopes, right_slopes)
-                sigma_R = self.limiter.limit(right_slopes, (W[j, n_ghost + 2:n_cells + n_ghost + 2] - W[j, n_ghost + 1:n_cells + n_ghost + 1]) / dx)
-            else:
-                sigma_L = (W[j, n_ghost:n_cells + n_ghost] - W[j, n_ghost - 1:n_cells + n_ghost - 1]) / dx
-                sigma_R = (W[j, n_ghost + 1:n_cells + n_ghost + 1] - W[j, n_ghost:n_cells + n_ghost]) / dx
-            W_L[j, :] = W[j, n_ghost:n_cells + n_ghost] + 0.5 * dx * sigma_L
-            W_R[j, :] = W[j, n_ghost + 1:n_cells + n_ghost + 1] - 0.5 * dx * sigma_R
+                left_slopes = (W[j, n_ghost - 1:n_cells + n_ghost] - W[j, n_ghost - 2:n_cells + n_ghost - 1]) / dx
+                right_slopes = (W[j, n_ghost + 1:n_cells + n_ghost + 2] - W[j, n_ghost:n_cells + n_ghost + 1]) / dx
+                slopes = self.limiter.limit(left_slopes, right_slopes)
+            W_L[j, :] = W[j, n_ghost - 1:n_cells + n_ghost] + 0.5 * dx * slopes
+            W_R[j, :] = W[j, n_ghost:n_cells + n_ghost + 1] - 0.5 * dx * slopes
 
-        return self._reconstruct_states(W_L, W_R, n_cells)
+        return self._reconstruct_states(W_L, W_R, n_cells + 1)
 
     def ppm(self, U: np.ndarray, dx: float, n_ghost: int = 2, full_stencil: bool = False) -> tuple:
         """Perform Piecewise Parabolic Method (PPM) reconstruction.
