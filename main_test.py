@@ -7,6 +7,12 @@ from src.equation.euler_equation import EulerEquation
 from src.solver import Solver
 
 
+def generate_non_uniform_grid(xmin, xmax, nx, stretch_factor=1.0):
+    x = np.zeros(nx + 1)
+    for i in range(nx + 1):
+        x[i] = xmin + (xmax - xmin) * (1 - np.cos(np.pi * i / nx)) / 2 * stretch_factor
+    return x
+
 def parse_args():
     """Parse command-line arguments for the solver.
 
@@ -22,6 +28,8 @@ def parse_args():
     parser.add_argument('--reconstruction', type=str, default='muscl', choices=['piecewise_constant', 'muscl', 'ppm', 'weno5'], help='Reconstruction method')
     parser.add_argument('--limiter', type=str, default='superbee', choices=['minmod', 'superbee', 'vanleer', 'mc', 'koren', 'osher', 'sweby', 'umist', 'none'], help='limiter method')
     parser.add_argument('--bc_type', type=str, default='neumann', choices=['neumann', 'periodic', 'dirichlet', 'reflective'], help='Boundary condition type')
+    parser.add_argument('--reconstruction_vars', type=str, default='conservative', 
+                        choices=['primitive', 'conservative'], help='Variable type for reconstruction')
     return parser.parse_args()
 
 def main():
@@ -37,7 +45,8 @@ def main():
     equation = equation_systems[args.equation]
 
     # Set up grid
-    x = np.linspace(0, 1, args.nx + 1)
+    x = generate_non_uniform_grid(0, 1, args.nx, stretch_factor=1.2)
+    
     n_vars = len(equation.get_variable_names())
     W = np.zeros((n_vars, args.nx))
 

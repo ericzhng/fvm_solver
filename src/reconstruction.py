@@ -75,14 +75,14 @@ class Reconstruction:
         if U.shape[1] < 2 * n_ghost + 1:
             raise ValueError("U must have at least 2*n_ghost + 1 cells")
 
-    def piecewise_constant(self, U: np.ndarray, dx: float, n_ghost: int = 2, use_primitive: bool = False) -> tuple:
+    def piecewise_constant(self, U: np.ndarray, x: np.ndarray, n_ghost: int = 2, use_primitive: bool = False) -> tuple:
         """Perform piecewise constant reconstruction.
 
         UL[i] = U[i], UR[i] = U[i+1]. First-order accurate.
 
         Args:
             U (np.ndarray): Conservative variables, shape (n_vars, n_cells + 2*n_ghost).
-            dx (float): Spatial grid spacing.
+            x (np.ndarray): Spatial grid.
             n_ghost (int): Number of ghost cells per side (default: 2).
 
         Returns:
@@ -93,8 +93,6 @@ class Reconstruction:
         """
         if n_ghost < 1:
             raise ValueError("n_ghost must be at least 1")
-        if dx <= 0:
-            raise ValueError("dx must be positive")
         self._validate_input(U, n_ghost)
 
         if use_primitive:
@@ -110,14 +108,14 @@ class Reconstruction:
 
         return UL, UR
 
-    def muscl(self, U: np.ndarray, dx: float, n_ghost: int = 2, use_primitive: bool = False) -> tuple:
+    def muscl(self, U: np.ndarray, x: np.ndarray, n_ghost: int = 2, use_primitive: bool = False) -> tuple:
         """Perform MUSCL reconstruction with slope limiting.
 
         Monotonic Upwind Scheme for Conservation Laws. Second-order accurate in smooth regions.
 
         Args:
             U (np.ndarray): Conservative variables, shape (n_vars, n_cells + 2*n_ghost).
-            dx (float): Spatial grid spacing.
+            x (np.ndarray): Spatial grid.
             n_ghost (int): Number of ghost cells per side (default: 2).
 
         Returns:
@@ -128,27 +126,27 @@ class Reconstruction:
         """
         if n_ghost < 1:
             raise ValueError("n_ghost must be at least 1")
-        if dx <= 0:
-            raise ValueError("dx must be positive")
         self._validate_input(U, n_ghost)
 
+        dx = np.diff(x)  # Non-uniform grid spacing
+        n_cells_total = U.shape[1]
+
         if use_primitive:
-            n_vars, n_cells_total = U.shape
             W = self._to_primitive_array(U)
             W_L = np.zeros_like(W[:, :-1])
             W_R = np.zeros_like(W[:, :-1])
 
             # Vectorized slope computation
-            for j in range(n_vars):
-                left_slopes = (W[j, 1:-1] - W[j, :-2]) / dx
-                right_slopes = (W[j, 2:] - W[j, 1:-1]) / dx
+            for j in range(self.equation_system.n_vars):
+                left_slopes = (W[j, 1:-1] - W[j, :-2])/ dx[:-1]
+                right_slopes = (W[j, 2:] - W[j, 1:-1])/ dx[1:]
                 slopes = self.limiter.limit(left_slopes, right_slopes)
 
                 slopes = np.insert(slopes, 0, 0)
                 slopes = np.append(slopes, 0)
 
-                W_L[j, :] = W[j, 0:-1] + 0.5 * dx * slopes[0:-1]
-                W_R[j, :] = W[j, 1:] - 0.5 * dx * slopes[1:]
+                W_L[j, :] = W[j, 0:-1] + 0.5 * dx[0:-1] * slopes[0:-1]
+                W_R[j, :] = W[j, 1:] - 0.5 * dx[0:-1] * slopes[1:]
 
             return self._reconstruct_states(W_L, W_R, n_cells_total - 1)
         
@@ -158,14 +156,14 @@ class Reconstruction:
             # Vectorized slope computation
             n_vars = U.shape[0]
             for j in range(n_vars):
-                left_slopes = (U[j, 1:-1] - U[j, :-2]) / dx
-                right_slopes = (U[j, 2:] - U[j, 1:-1]) / dx
+                left_slopes = (U[j, 1:-1] - U[j, :-2]) / dx[:-1]
+                right_slopes = (U[j, 2:] - U[j, 1:-1]) / dx[1:]
                 slopes = self.limiter.limit(left_slopes, right_slopes)
 
                 slopes = np.insert(slopes, 0, 0)
                 slopes = np.append(slopes, 0)
 
-                UL[j, :] = U[j, 0:-1] + 0.5 * dx * slopes[0:-1]
-                UR[j, :] = U[j, 1:] - 0.5 * dx * slopes[1:]
+                UL[j, :] = U[j, 0:-1] + 0.5 * dx[0:-1] * slopes[0:-1]
+                UR[j, :] = U[j, 1:] - 0.5 * dx[0:-1] * slopes[1:]
 
             return UL, UR

@@ -13,7 +13,7 @@ class Solver:
     """
     def __init__(self, equation_system: EquationSystem, boundary_condition: BoundaryCondition, 
                  flux: str = 'hllc', reconstruction: str = 'weno5', limiter: str = 'minmod',
-                 cfl: float = 0.5):
+                 cfl: float = 0.5, use_primitive_reconstruction: bool = False):
         """Initialize the solver.
 
         Args:
@@ -44,6 +44,7 @@ class Solver:
             # 'weno5': self.reconstruction.weno5
         }[reconstruction.lower()]
         self.cfl = cfl
+        self.use_primitive_reconstruction = use_primitive_reconstruction
         self.variable_names = equation_system.get_variable_names()
 
     def compute_dt(self, U: np.ndarray, x: np.ndarray) -> float:
@@ -70,9 +71,11 @@ class Solver:
         W = self._to_primitive_array(U)
         max_value = 0.0
         for i in range(n_cells):
-            value = (x[i+1] - x[i]) / (
-                abs(W[self.equation_system.velocity_index, i]) + self.equation_system.sound_speed(W[:, i]) + self.equation_system.min_var
-                )
+            dx = x[i+1] - x[i]
+            value = dx / (
+                abs(W[self.equation_system.velocity_index, i]) + 
+                self.equation_system.sound_speed(W[:, i]) + self.equation_system.min_var
+            )
             max_value = max(max_value, value)
         adaptive_cfl = min(
             self.cfl,
@@ -160,7 +163,7 @@ class Solver:
             dt = min(self.compute_dt(U, x), T - t)
 
             # Reconstruct states at interfaces
-            UL, UR = self.reconstruction_method(U_ext, dx, n_ghost)
+            UL, UR = self.reconstruction_method(U_ext, dx, n_ghost, use_primitive=self.use_primitive_reconstruction)
             WL = self._to_primitive_array(UL)
             WR = self._to_primitive_array(UR)
             

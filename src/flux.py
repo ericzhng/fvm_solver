@@ -31,7 +31,7 @@ class Flux:
         self.safeguarded_indices = equation_system.safeguarded_indices
         self.lambda_max = lambda_max or 1.0
 
-    def _is_invalid_state(self, WL: np.ndarray, WR: np.ndarray) -> bool:
+    def _is_invalid_state(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> bool:
         """Check if primitive states violate safeguarded variable thresholds.
         
         Args:
@@ -43,8 +43,13 @@ class Flux:
         for idx in self.safeguarded_indices:
             if WL[idx] <= self.min_var or WR[idx] <= self.min_var:
                 return True
+        for U in [UL, UR]:
+            W = self.equation_system.to_primitive(U)
+            for idx in self.safeguarded_indices:
+                if W[idx] <= self.min_var:
+                    return True
         return False
-
+    
     def _handle_invalid_state(self, W_L: np.ndarray, W_R: np.ndarray, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """Handle invalid states by selecting upwind flux.
         
@@ -75,7 +80,7 @@ class Flux:
         Returns:
             np.ndarray: Numerical flux.
         """
-        if self._is_invalid_state(UL, UR):
+        if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
         
         FL = self.equation_system.compute_flux(UL, WL)
@@ -96,7 +101,7 @@ class Flux:
         Returns:
             np.ndarray: Numerical flux.
         """
-        if self._is_invalid_state(UL, UR):
+        if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
 
         FL = self.equation_system.compute_flux(UL, WL)
@@ -124,7 +129,7 @@ class Flux:
         Returns:
             np.ndarray: Numerical flux.
         """
-        if self._is_invalid_state(UL, UR):
+        if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
 
         FL = self.equation_system.compute_flux(UL, WL)
@@ -159,7 +164,7 @@ class Flux:
         Returns:
             np.ndarray: Numerical flux.
         """
-        if self._is_invalid_state(UL, UR):
+        if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
 
         cL = self.equation_system.sound_speed(WL)
@@ -192,7 +197,7 @@ class Flux:
         Returns:
             np.ndarray: Numerical flux.
         """
-        if self._is_invalid_state(UL, UR):
+        if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
         
         # Use equation system's hllc_states_and_flux
@@ -213,7 +218,7 @@ class Flux:
         Returns:
             np.ndarray: Numerical flux.
         """
-        if self._is_invalid_state(UL, UR):
+        if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
         
         # Use equation system's roe_states_and_flux

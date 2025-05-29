@@ -168,9 +168,6 @@ class EulerEquation(EquationSystem):
             UL (np.ndarray): Left conservative state [density, momentum, energy].
             UR (np.ndarray): Right conservative state [density, momentum, energy].
 
-        Returns:
-            F: Roe numerical flux.
-        
         Others: (rho_roe, u_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F), where:
             - rho_roe, u_roe: Roe-averaged density and velocity.
             - c_roe: Roe-averaged sound speed.
@@ -178,14 +175,20 @@ class EulerEquation(EquationSystem):
             - eigenvectors: Roe eigenvectors.
             - delta: Entropy fix parameter.
             - wave_strengths: Wave strength coefficients.
+        
+        Returns:
+            F: Roe numerical flux.
         """
         if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
             raise ValueError(f"All inputs must have shape ({self.n_vars},)")
         
         rhoL, uL, pL = WL
         rhoR, uR, pR = WR
-        hL = (UL[2] + pL) / (rhoL + self.min_var)
-        hR = (UR[2] + pR) / (rhoR + self.min_var)
+        rhoL = np.maximum(rhoL, self.min_var)
+        rhoR = np.maximum(rhoR, self.min_var)
+        hL = (UL[2] + pL) / rhoL
+        hR = (UR[2] + pR) / rhoR
+
         # Roe averages
         rho_roe = np.sqrt(rhoL * rhoR)
         u_roe = (uL * np.sqrt(rhoL) + uR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
@@ -206,11 +209,11 @@ class EulerEquation(EquationSystem):
         delta_rho = delta_U[0]
         delta_rho_u = delta_U[1]
         delta_rho_E = delta_U[2]
-        alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_var)) * (
+        alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_var*1E2)) * (
             delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
         )
-        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_var)
-        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_var)
+        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_var*1E2)
+        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_var*1E2)
         wave_strengths = np.array([alpha_1, alpha_2, alpha_3])
 
         # Compute flux
@@ -219,7 +222,9 @@ class EulerEquation(EquationSystem):
 
         abs_A = np.zeros_like(FL)
         for i in range(len(eigenvalues)):
-            abs_lambda = abs(eigenvalues[i]) if abs(eigenvalues[i]) > delta else (eigenvalues[i] + np.sqrt(eigenvalues[i]**2 + delta**2)) / 2.0
+            abs_lambda = abs(eigenvalues[i])
+            if abs_lambda < delta:
+                abs_lambda = (eigenvalues[i]**2 + delta**2) / (2 * delta)
             abs_A += abs_lambda * wave_strengths[i] * eigenvectors[i]
         F = 0.5 * (FL + FR - abs_A)
 
