@@ -135,8 +135,9 @@ class Solver:
         t = 0.0
         history = [U.copy()]
 
+        n = 1
         while t < T:
-            print(f"Time: {t:.3f}")
+            print(f"N: {n:03d}, Time: {t:.3f}")
             # Apply boundary conditions
             U_ext = self.bc.apply_bcs(U, n_ghost)
 
@@ -144,25 +145,27 @@ class Solver:
             dt = min(self.compute_dt(U, dx), T - t)
 
             # Reconstruct states at interfaces
-            WL, WR = self.reconstruction_method(U_ext, n_ghost)
-            UL = np.zeros_like(WL)
-            UR = np.zeros_like(WR)
+            UL, UR = self.reconstruction_method(U_ext, dx, n_ghost)
+            WL = np.zeros_like(UL)
+            WR = np.zeros_like(UR)
             for i in range(WL.shape[1]):
-                UL[:, i] = self.equation_system.to_conservative(WL[:, i])
-                UR[:, i] = self.equation_system.to_conservative(WR[:, i])
+                WL[:, i] = self.equation_system.to_primitive(UL[:, i])
+                WR[:, i] = self.equation_system.to_primitive(UR[:, i])
 
             # Compute fluxes
-            F = np.zeros((n_vars, n_cells + 1))
-            for i in range(n_cells + 1):
+            F = np.zeros((n_vars, n_cells + 2 * n_ghost - 1))
+            for i in range(n_cells + 2 * n_ghost - 1):
                 F[:, i] = self.flux(UL[:, i], UR[:, i], WL[:, i], WR[:, i])
 
             # Update solution
-            U_new = U - (dt / dx) * (F[:, 1:] - F[:, :-1])
+            dF = (F[:, 1:] - F[:, :-1])
+            U_new = U - (dt / dx) * dF[:, n_ghost - 1:n_cells + n_ghost - 1]
             for idx in self.equation_system.safeguarded_indices:
                 U_new[idx, :] = np.maximum(U_new[idx, :], self.equation_system.min_var)
             U = U_new
 
             t += dt
+            n += 1
 
             history.append(U.copy())
 

@@ -96,13 +96,9 @@ class Reconstruction:
         if dx <= 0:
             raise ValueError("dx must be positive")
         self._validate_input(U, n_ghost)
-        n_vars, n_cells_total = U.shape
-        n_cells = n_cells_total - 2 * n_ghost
 
-        UL = np.zeros((n_vars, n_cells + 1))
-        UR = np.zeros((n_vars, n_cells + 1))
-        UL[:, :] = U[:, n_ghost - 1:n_cells + n_ghost]
-        UR[:, :] = U[:, n_ghost + 0:n_cells + n_ghost + 1]
+        UL = U[:, :-1]
+        UR = U[:, 1:]
 
         return UL, UR
 
@@ -128,24 +124,41 @@ class Reconstruction:
             raise ValueError("dx must be positive")
         self._validate_input(U, n_ghost)
 
-        n_vars, n_cells_total = U.shape
-        n_cells = n_cells_total - 2 * n_ghost
-
-        W = self._to_primitive_array(U)
-        W_L = np.zeros((n_vars, n_cells + 1))
-        W_R = np.zeros((n_vars, n_cells + 1))
-
+        UL = np.zeros_like(U[:, :-1])
+        UR = np.zeros_like(U[:, :-1])
         # Vectorized slope computation
+        n_vars = U.shape[0]
         for j in range(n_vars):
-            slopes = np.zeros(n_cells + 1)
-            if self.limiter:
-                left_slopes = (W[j, n_ghost - 1:n_cells + n_ghost] - W[j, n_ghost - 2:n_cells + n_ghost - 1]) / dx
-                right_slopes = (W[j, n_ghost + 1:n_cells + n_ghost + 2] - W[j, n_ghost:n_cells + n_ghost + 1]) / dx
-                slopes = self.limiter.limit(left_slopes, right_slopes)
-            W_L[j, :] = W[j, n_ghost - 1:n_cells + n_ghost] + 0.5 * dx * slopes
-            W_R[j, :] = W[j, n_ghost:n_cells + n_ghost + 1] - 0.5 * dx * slopes
+            left_slopes = (U[j, 1:-1] - U[j, :-2]) / dx
+            right_slopes = (U[j, 2:] - U[j, 1:-1]) / dx
+            slopes = self.limiter.limit(left_slopes, right_slopes)
 
-        return self._reconstruct_states(W_L, W_R, n_cells + 1)
+            slopes = np.insert(slopes, 0, 0)
+            slopes = np.append(slopes, 0)
+
+            UL[j, :] = U[j, 0:-1] + 0.5 * dx * slopes[0:-1]
+            UR[j, :] = U[j, 1:] - 0.5 * dx * slopes[1:]
+        return UL, UR
+
+        # n_vars, n_cells_total = U.shape
+        # W = self._to_primitive_array(U)
+        # W_L = np.zeros_like(W[:, :-1])
+        # W_R = np.zeros_like(W[:, :-1])
+
+        # # Vectorized slope computation
+        # for j in range(n_vars):
+        #     left_slopes = (W[j, 1:-1] - W[j, :-2]) / dx
+        #     right_slopes = (W[j, 2:] - W[j, 1:-1]) / dx
+        #     slopes = self.limiter.limit(left_slopes, right_slopes)
+
+        #     slopes = np.insert(slopes, 0, 0)
+        #     slopes = np.append(slopes, 0)
+
+        #     W_L[j, :] = W[j, 0:-1] + 0.5 * dx * slopes[0:-1]
+        #     W_R[j, :] = W[j, 1:] - 0.5 * dx * slopes[1:]
+
+        # return self._reconstruct_states(W_L, W_R, n_cells_total - 1)
+
 
     def ppm(self, U: np.ndarray, dx: float, n_ghost: int = 2, full_stencil: bool = False) -> tuple:
         """Perform Piecewise Parabolic Method (PPM) reconstruction.
@@ -170,35 +183,37 @@ class Reconstruction:
         if dx <= 0:
             raise ValueError("dx must be positive")
         self._validate_input(U, n_ghost)
+
         n_vars, n_cells_total = U.shape
-        n_cells = n_cells_total - 2 * n_ghost
         W = self._to_primitive_array(U)
-        W_L_all = np.zeros((n_vars, n_cells))
-        W_R_all = np.zeros((n_vars, n_cells))
+        W_L_all = np.zeros_like(W[:, :-1])
+        W_R_all = np.zeros_like(W[:, :-1])
 
         for j in range(n_vars):
             if full_stencil:
                 # 5-point stencil for interior cells
-                idx = slice(n_ghost + 2, n_cells + n_ghost - 2)
                 W_R_all[j, 2:-2] = (7/12) * (W[j, idx] + W[j, idx + 1]) - (1/12) * (W[j, idx - 1] + W[j, idx + 2])
                 W_L_all[j, 2:-2] = (7/12) * (W[j, idx - 1] + W[j, idx]) - (1/12) * (W[j, idx - 2] + W[j, idx + 1])
                 # Simple stencil for boundary cells
-                idx_bound = [0, 1, n_cells - 2, n_cells - 1]
+                idx_bound = [0, 1, n_cells_total - 2, n_cells_total - 1]
                 W_R_all[j, idx_bound] = W[j, n_ghost + idx_bound] + 0.5 * (W[j, n_ghost + idx_bound + 1] - W[j, n_ghost + idx_bound - 1])
                 W_L_all[j, idx_bound] = W[j, n_ghost + idx_bound] - 0.5 * (W[j, n_ghost + idx_bound + 1] - W[j, n_ghost + idx_bound - 1])
             else:
                 # Simple second-order stencil
-                delta_W = 0.5 * (W[j, n_ghost + 1:n_cells + n_ghost + 1] - W[j, n_ghost - 1:n_cells + n_ghost - 1])
-                W_R_all[j, :] = W[j, n_ghost:n_cells + n_ghost] + delta_W
-                W_L_all[j, :] = W[j, n_ghost:n_cells + n_ghost] - delta_W
+                delta_W = 0.5 * (W[j, 1:] - W[j, 0:-1])
+                W_R_all[j, :] = W[j, :-1] + delta_W
+                W_L_all[j, :] = W[j, 1:] - delta_W
 
             # Apply monotonicity constraints
-            for i in range(n_cells):
+            for i in range(W_L_all.shape[1]):
+
                 if (W_R_all[j, i] - W[j, i + n_ghost]) * (W[j, i + n_ghost] - W_L_all[j, i]) <= 0:
+
                     W_L_all[j, i] = W[j, i + n_ghost]
                     W_R_all[j, i] = W[j, i + n_ghost]
                 else:
                     delta_W = W_R_all[j, i] - W_L_all[j, i] + 1e-10
+
                     if (W_R_all[j, i] - W[j, i + n_ghost]) * (W[j, i + n_ghost] - W_L_all[j, i]) > delta_W**2 / 6:
                         W_L_all[j, i] = 3 * W[j, i + n_ghost] - 2 * W_R_all[j, i]
                     if (W_R_all[j, i] - W[j, i + n_ghost]) * (W[j, i + n_ghost] - W_L_all[j, i]) < -delta_W**2 / 6:
@@ -206,7 +221,8 @@ class Reconstruction:
 
         W_L = W_R_all[:, :-1]
         W_R = W_L_all[:, 1:]
-        return self._reconstruct_states(W_L, W_R, n_cells)
+
+        return self._reconstruct_states(W_L, W_R, W_L.shape[1])
 
     def weno5(self, U: np.ndarray, dx: float, n_ghost: int = 2) -> tuple:
         """Perform WENO5 reconstruction.
