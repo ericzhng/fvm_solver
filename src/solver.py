@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from .equation import EquationSystem
-from .fluxes import Flux
-from .reconstructions import Reconstruction
-from .boundary_conditions import BoundaryCondition
+from .equation.base_equation import EquationSystem
+from .flux import Flux
+from .reconstruction import Reconstruction
+from .boundary import BoundaryCondition
 
 
 class Solver:
@@ -11,15 +11,15 @@ class Solver:
 
     Integrates systems using specified flux, reconstruction, and boundary conditions.
     """
-
-    def __init__(self, equation_system: EquationSystem, flux: str = 'hllc', reconstruction: str = 'weno5',
-                 cfl: float = 0.5, bc_type: str = 'periodic', limiter: str = 'minmod'):
+    def __init__(self, equation_system: EquationSystem, boundary_condition: BoundaryCondition, 
+                 flux: str = 'hllc', reconstruction: str = 'weno5', limiter: str = 'minmod',
+                 cfl: float = 0.5):
         """Initialize the solver.
 
         Args:
             equation_system (EquationSystem): The equation system to solve.
-            flux (str): Flux method ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe', 'roe_general').
             reconstruction (str): Reconstruction method ('piecewise_constant', 'muscl', 'ppm', 'weno5').
+            flux (str): Flux method ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe', 'roe_general').
             cfl (float): CFL number for time step control (default: 0.5).
             bc_type (str): Boundary condition type ('periodic', 'reflective', 'dirichlet', 'neumann').
             limiter (str): Limiter for MUSCL reconstruction (default: 'minmod').
@@ -29,38 +29,31 @@ class Solver:
             ValueError: If flux, reconstruction, or bc_type is unsupported, or cfl <= 0.
         """
         if not isinstance(equation_system, EquationSystem):
-            raise TypeError("equation_system must be an EquationSystem instance")
+            raise TypeError("input equation_system must be an EquationSystem instance")
         if cfl <= 0:
             raise ValueError("cfl must be positive")
+        
         self.equation_system = equation_system
+        self.bc = boundary_condition
         self.flux = Flux(equation_system, lambda_max=1.0).get_flux(flux.lower())
         self.reconstruction = Reconstruction(equation_system, limiter=limiter if reconstruction.lower() == 'muscl' else None)
         self.reconstruction_method = {
             'piecewise_constant': self.reconstruction.piecewise_constant,
             'muscl': self.reconstruction.muscl,
-            'ppm': self.reconstruction.ppm,
-            'weno5': self.reconstruction.weno5
+            # 'ppm': self.reconstruction.ppm,
+            # 'weno5': self.reconstruction.weno5
         }[reconstruction.lower()]
         self.cfl = cfl
-        self.bc = BoundaryCondition(equation_system, bc_type.lower())
         self.variable_names = equation_system.get_variable_names()
 
-    def specify_bc(self, left: float, right: float):
-        self.bc.left_values = left
-        self.bc.right_values = right
-
-    def specify_dx(self, x: np.ndarray):
-        dx = x[1] - x[0]
-        self.bc.dx = dx
-
-    def compute_dt(self, U: np.ndarray, dx: float) -> float:
+    def compute_dt(self, U: np.ndarray, x: np.ndarray) -> float:
         """Compute time step based on CFL condition.
 
         Formula: dt = CFL * dx / max(|velocity| + sound_speed)
 
         Args:
             U (np.ndarray): Conservative variables, shape (n_vars, n_cells).
-            dx (float): Spatial grid spacing.
+            x (float): Spatial grid array.
 
         Returns:
             float: Time step size.
@@ -68,21 +61,24 @@ class Solver:
         Raises:
             ValueError: If dx <= 0 or U shape is invalid.
         """
-        if dx <= 0:
-            raise ValueError("dx must be positive")
+        if x.size != U.shape[1] + 1:
+            raise ValueError("x must be of length n_cells + 1")
         if U.ndim != 2 or U.shape[0] != self.equation_system.n_vars:
             raise ValueError(f"U must have shape ({self.equation_system.n_vars}, n_cells)")
+        
         n_cells = U.shape[1]
         W = self._to_primitive_array(U)
-        max_speed = 0.0
+        max_value = 0.0
         for i in range(n_cells):
-            speed = abs(W[self.equation_system.velocity_index, i]) + self.equation_system.sound_speed(W[:, i])
-            max_speed = max(max_speed, speed)
+            value = (x[i+1] - x[i]) / (
+                abs(W[self.equation_system.velocity_index, i]) + self.equation_system.sound_speed(W[:, i]) + self.equation_system.min_var
+                )
+            max_value = max(max_value, value)
         adaptive_cfl = min(
             self.cfl,
             0.4 if self.reconstruction_method.__name__ == 'weno5' else 0.2 if self.reconstruction_method.__name__ == 'ppm' else self.cfl
         )
-        return adaptive_cfl * dx / (max_speed + self.equation_system.min_var)
+        return adaptive_cfl * max_value
 
     def _to_primitive_array(self, U: np.ndarray) -> np.ndarray:
         """Convert conservative variables to primitive variables for all cells.
@@ -100,6 +96,23 @@ class Solver:
         for i in range(n_cells):
             W[:, i] = self.equation_system.to_primitive(U[:, i])
         return W
+
+    def _to_conservative_array(self, W: np.ndarray) -> np.ndarray:
+        """Convert primitive variables to conservative variables for all cells.
+
+        Args:
+            W (np.ndarray): Primitive variables, shape (n_vars, n_cells).
+
+        Returns:
+            np.ndarray: Conservative variables, shape (n_vars, n_cells).
+        """
+        if W.ndim != 2 or W.shape[0] != self.equation_system.n_vars:
+            raise ValueError(f"W must have shape ({self.equation_system.n_vars}, n_cells)")
+        n_cells = W.shape[1]
+        U = np.zeros_like(W)
+        for i in range(n_cells):
+            U[:, i] = self.equation_system.to_conservative(W[:, i])
+        return U
 
     def solve(self, U0: np.ndarray, x: np.ndarray, T: float, n_ghost: int = 2) -> tuple:
         """Solve the hyperbolic system until time T.
@@ -120,54 +133,50 @@ class Solver:
         """
         if T < 0:
             raise ValueError("T must be non-negative")
-        if x.size < 2:
-            raise ValueError("x must have at least 2 points")
+        if x.size < 3:
+            raise ValueError("test must have at least 2 cells (3 points)")
         if U0.ndim != 2 or U0.shape[0] != self.equation_system.n_vars:
             raise ValueError(f"U0 must have shape ({self.equation_system.n_vars}, n_cells)")
+        
         min_ghost = 2 if self.reconstruction_method.__name__ in ['ppm', 'weno5'] else 1
         if n_ghost < min_ghost:
             raise ValueError(f"n_ghost must be at least {min_ghost} for {self.reconstruction_method.__name__}")
-
+        
         dx = x[1] - x[0]
         n_cells = U0.shape[1]
-        n_vars = self.equation_system.n_vars
         U = U0.copy()
-        t = 0.0
         history = [U.copy()]
 
+        t = 0.0
         n = 1
+
         while t < T:
-            print(f"N: {n:03d}, Time: {t:.3f}")
+            print(f"{n:03d} - {t:.3f} s")
+
             # Apply boundary conditions
             U_ext = self.bc.apply_bcs(U, n_ghost)
 
             # Compute time step
-            dt = min(self.compute_dt(U, dx), T - t)
+            dt = min(self.compute_dt(U, x), T - t)
 
             # Reconstruct states at interfaces
             UL, UR = self.reconstruction_method(U_ext, dx, n_ghost)
-            WL = np.zeros_like(UL)
-            WR = np.zeros_like(UR)
-            for i in range(WL.shape[1]):
-                WL[:, i] = self.equation_system.to_primitive(UL[:, i])
-                WR[:, i] = self.equation_system.to_primitive(UR[:, i])
-
+            WL = self._to_primitive_array(UL)
+            WR = self._to_primitive_array(UR)
+            
             # Compute fluxes
-            F = np.zeros((n_vars, n_cells + 2 * n_ghost - 1))
-            for i in range(n_cells + 2 * n_ghost - 1):
+            F = np.zeros_like(UL)
+            for i in range(UL.shape[1]):
                 F[:, i] = self.flux(UL[:, i], UR[:, i], WL[:, i], WR[:, i])
 
             # Update solution
             dF = (F[:, 1:] - F[:, :-1])
-            U_new = U - (dt / dx) * dF[:, n_ghost - 1:n_cells + n_ghost - 1]
-            for idx in self.equation_system.safeguarded_indices:
-                U_new[idx, :] = np.maximum(U_new[idx, :], self.equation_system.min_var)
-            U = U_new
-
-            t += dt
-            n += 1
+            U = U - (dt / dx) * dF[:, n_ghost - 1:n_cells + n_ghost - 1]
 
             history.append(U.copy())
+            
+            t += dt
+            n += 1
 
         return np.array(history), t
 

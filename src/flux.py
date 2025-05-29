@@ -1,5 +1,5 @@
 import numpy as np
-from .equation import EquationSystem
+from .equation.base_equation import EquationSystem
 
 
 def numerical_jacobian(F, U, h=1e-6):
@@ -31,17 +31,17 @@ class Flux:
         self.safeguarded_indices = equation_system.safeguarded_indices
         self.lambda_max = lambda_max or 1.0
 
-    def _is_invalid_state(self, UL: np.ndarray, UR: np.ndarray) -> bool:
-        """Check if conservative states violate safeguarded variable thresholds.
+    def _is_invalid_state(self, WL: np.ndarray, WR: np.ndarray) -> bool:
+        """Check if primitive states violate safeguarded variable thresholds.
         
         Args:
-            UL, UR: Left and right conservative states
+            WL, WR: Left and right primitive states
             
         Returns:
-            True if any safeguarded conservative variable is below threshold
+            True if any safeguarded primitive variable is below threshold
         """
         for idx in self.safeguarded_indices:
-            if UL[idx] <= self.min_var or UR[idx] <= self.min_var:
+            if WL[idx] <= self.min_var or WR[idx] <= self.min_var:
                 return True
         return False
 
@@ -55,7 +55,6 @@ class Flux:
         Returns:
             Upwind flux
         """
-
         u_avg = 0.5 * (W_L[self.velocity_index] + W_R[self.velocity_index])
         return self.equation_system.compute_flux(
             U_L if u_avg >= 0 else U_R, 
@@ -130,17 +129,20 @@ class Flux:
 
         FL = self.equation_system.compute_flux(UL, WL)
         FR = self.equation_system.compute_flux(UR, WR)
+
         # Local maximum wave speed
-        lambda_max = max(
+        lambda_local = max(
             abs(WL[self.velocity_index]) + self.equation_system.sound_speed(WL),
             abs(WR[self.velocity_index]) + self.equation_system.sound_speed(WR)
         ) if self.velocity_index is not None else self.lambda_max
         # Lax-Friedrichs component
-        F_LF = 0.5 * (FL + FR - lambda_max * (UR - UL))
+        F_LF = 0.5 * (FL + FR - lambda_local * (UR - UL))
+
         # Richtmyer component
-        U_mid = 0.5 * (UL + UR) - 0.5 * (FR - FL) / (lambda_max + self.min_var)
+        U_mid = 0.5 * (UL + UR) - 0.5 * (FR - FL) / (lambda_local + self.min_var)
         W_mid = self.equation_system.to_primitive(U_mid)
         F_Richtmyer = self.equation_system.compute_flux(U_mid, W_mid)
+
         return 0.5 * (F_LF + F_Richtmyer)
 
     def hll(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
@@ -164,11 +166,14 @@ class Flux:
         cR = self.equation_system.sound_speed(WR)
         uL = WL[self.equation_system.velocity_index] if self.equation_system.velocity_index is not None else 0.0
         uR = WR[self.equation_system.velocity_index] if self.equation_system.velocity_index is not None else 0.0
+        
         # Wave speed estimates
         SL = min(uL - cL, uR - cR)
         SR = max(uL + cL, uR + cR)
+
         FL = self.equation_system.compute_flux(UL, WL)
         FR = self.equation_system.compute_flux(UR, WR)
+
         if SL >= 0:
             return FL
         if SR <= 0:
@@ -191,7 +196,7 @@ class Flux:
             return self._handle_invalid_state(WL, WR, UL, UR)
         
         # Use equation system's hllc_states_and_flux
-        _, _, _, _, _, F = self.equation_system.hllc_states_and_flux(WL, WR, UL, UR)
+        F = self.equation_system.hllc_numerical_flux(WL, WR, UL, UR)
         return F
 
     def roe(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
@@ -210,56 +215,10 @@ class Flux:
         """
         if self._is_invalid_state(UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
+        
         # Use equation system's roe_states_and_flux
-        _, _, _, _, _, _, _, F = self.equation_system.roe_states_and_flux(WL, WR, UL, UR)
+        F = self.equation_system.roe_numerical_flux(WL, WR, UL, UR)
         return F
-
-    def roe_general(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute Roe flux for a general hyperbolic system.
-
-        Args:
-            UL (np.ndarray): Left conservative state.
-            UR (np.ndarray): Right conservative state.
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-
-        Returns:
-            np.ndarray: Roe numerical flux.
-        """
-        # Compute fluxes
-        FL = self.equation_system.compute_flux(UL, WL)
-        FR = self.equation_system.compute_flux(UR, WR)
-        
-        # Roe average (default: primitive variable averaging)
-        W_tilde = 0.5 * (WL + WR)
-        U_tilde = self.equation_system.to_conservative(W_tilde)
-        
-        # Numerical Jacobian
-        A = numerical_jacobian(
-            lambda U: self.equation_system.compute_flux(U, self.equation_system.to_primitive(U)),
-            U_tilde
-        )
-        
-        # Eigenstructure
-        eigenvalues, R = np.linalg.eig(A)
-        delta = 0.1 * np.max(np.abs(eigenvalues))
-        eigenvalues = np.where(
-            np.abs(eigenvalues) > delta,
-            eigenvalues,
-            0.5 * (eigenvalues + np.sqrt(eigenvalues**2 + delta**2))
-        )
-        
-        # Wave strengths
-        delta_U = UR - UL
-        alpha = np.linalg.solve(R, delta_U)
-        
-        # Dissipative term
-        dissipative_term = np.zeros_like(UL)
-        for i in range(len(eigenvalues)):
-            dissipative_term += abs(eigenvalues[i]) * alpha[i] * R[:, i]
-        
-        # Roe flux
-        return 0.5 * (FL + FR - dissipative_term)
 
     def get_flux(self, flux_type: str):
         """Return the specified flux method.
@@ -279,8 +238,7 @@ class Flux:
             'force': self.force,
             'hll': self.hll,
             'hllc': self.hllc,
-            'roe': self.roe,
-            'roe_general': self.roe_general
+            'roe': self.roe
         }
         if flux_type not in flux_methods:
             raise ValueError(f"Unsupported flux type: {flux_type}. Choose from {list(flux_methods.keys())}")

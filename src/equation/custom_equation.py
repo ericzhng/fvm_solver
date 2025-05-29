@@ -1,74 +1,54 @@
 import numpy as np
+from .base_equation import EquationSystem
 
 
-class EquationSystem:
-    """Base class for hyperbolic conservation law equation systems.
+# for transport equation
+class CustomSystem(EquationSystem):
 
-    Provides default numerical methods for flux calculations and state conversions.
-    Subclasses should override methods for analytical implementations.
-    """
-
-    def __init__(self, min_var: float = 1e-10):
-        """Initialize equation system with minimum variable threshold."""
-        self.min_var = min_var  # Minimum value for numerical stability
-        self.velocity_index = None
-        self.monitored_index = None
-        self.safeguarded_indices: list[int] = []
-        self.variable_names: list[str] = []
-        self.n_vars = 0  # Number of variables, to be set by subclasses
+    def __init__(self, param1, min_var=1e-10):
+        super().__init__(min_var)
+        self.param1 = param1
+        self.velocity_index = 1
+        self.monitored_index = 0
+        self.safeguarded_indices = [0]
     
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
-        """Convert primitive variables to conservative variables.
-
-        Args:
-            W (np.ndarray): Primitive variables.
-
-        Returns:
-            np.ndarray: Conservative variables.
-        """
-        raise NotImplementedError
+        # Example
+        return np.array([W[0], W[0] * W[1]])
     
     def to_primitive(self, U: np.ndarray) -> np.ndarray:
-        """Convert conservative variables to primitive variables.
-
-        Args:
-            U (np.ndarray): Conservative variables.
-
-        Returns:
-            np.ndarray: Primitive variables.
-        """
-        raise NotImplementedError
-
-    def compute_flux(self, U: np.ndarray, W: np.ndarray) -> np.ndarray:
-        """Compute the physical flux for the given state.
-
-        Args:
-            U (np.ndarray): Conservative variables.
-            W (np.ndarray): Primitive variables.
-
-        Returns:
-            np.ndarray: Flux vector.
-        """
-        raise NotImplementedError
-
+        # Example
+        return np.array([U[0], U[1] / (U[0] + self.min_var)])
+    
     def sound_speed(self, W: np.ndarray) -> float:
-        """Compute the sound speed for the given primitive state.
-
-        Args:
-            W (np.ndarray): Primitive variables.
-
-        Returns:
-            float: Sound speed.
-        """
-        raise NotImplementedError
-
+        """Compute sound speed numerically via Jacobian eigenvalues."""
+        # Convert to conservative state
+        U = self.to_conservative(W)
+        n_vars = len(U)
+        epsilon = 1e-6
+        A = np.zeros((n_vars, n_vars))
+        
+        # Numerical Jacobian
+        for j in range(n_vars):
+            U_pert = U.copy()
+            U_pert[j] += epsilon
+            W_pert = self.to_primitive(U_pert)
+            F_plus = self.compute_flux(U_pert, W_pert)
+            F = self.compute_flux(U, W)
+            A[:, j] = (F_plus - F) / epsilon
+        
+        # Compute eigenvalues
+        eigenvalues = np.linalg.eigvals(A)
+        # Sound speed: max eigenvalue magnitude, adjusted for velocity
+        u = W[self.velocity_index]
+        return np.max(np.abs(eigenvalues - u))
+    
+    def compute_flux(self, U: np.ndarray, W: np.ndarray) -> np.ndarray:
+        # Example flux (replace with actual system)
+        return np.array([W[0] * W[1], W[1]**2 + self.param1 * W[0]])
+    
     def get_variable_names(self) -> list:
-        """Return the names of the primitive variables.
-
-        Returns:
-            list: List of variable names.
-        """
-        return self.variable_names
+        return ['var1', 'velocity']
 
     def hllc_wave_speeds(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute HLLC wave speeds (numerical default).
@@ -98,7 +78,6 @@ class EquationSystem:
         S_star = 0.5 * (uL + uR) + (FL[self.velocity_index] - FR[self.velocity_index]) / ( UL[self.velocity_index] - UR[self.velocity_index] + 1e-10 )
 
         return S_L, S_R, S_star
-
 
     def hllc_intermediate_states(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray,
                                 S_L: float, S_R: float, S_star: float) -> tuple:
@@ -161,7 +140,7 @@ class EquationSystem:
 
         return S_L, S_R, S_star, UL_star, UR_star, F
 
-    def roe_averaged_state(self, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
+    def roe_averaged_state(self, WL: np.ndarray, WR: np.ndarray, use_jacobian: bool = False) -> np.ndarray:
         """Compute Roe-averaged state variables.
 
         Typically use parameter vector for averaging, usually analytically.
@@ -176,13 +155,32 @@ class EquationSystem:
         Returns:
             np.ndarray:  u_roe, c_roe.
         """
-        UL = self.to_conservative(WL)
-        UR = self.to_conservative(WR)
-        U_roe = 0.5 * (UL + UR)
-        W_roe = self.to_primitive(U_roe)
-        c_roe = self.sound_speed(W_roe)
-        return np.array([W_roe[self.velocity_index], c_roe])
-        
+        if use_jacobian:
+            UL = self.to_conservative(WL)
+            UR = self.to_conservative(UR)
+            U_roe = 0.5 * (UL + UR)
+            n_vars = len(UL)
+            A_roe = np.zeros((n_vars, n_vars))
+            epsilon = 1e-6
+            for j in range(n_vars):
+                U_pert = U_roe.copy()
+                U_pert[j] += epsilon
+                W_pert = self.to_primitive(U_pert)
+                F_plus = self.compute_flux(U_pert, W_pert)
+                F = self.compute_flux(U_roe, self.to_primitive(U_roe))
+                A_roe[:, j] = (F_plus - F) / epsilon
+            eigenvalues = np.linalg.eigvals(A_roe)
+            u_roe = self.to_primitive(U_roe)[self.velocity_index]
+            c_roe = max(abs(eigenvalues - u_roe))
+            return np.array([u_roe, c_roe])
+        else:
+            UL = self.to_conservative(WL)
+            UR = self.to_conservative(WR)
+            U_roe = 0.5 * (UL + UR)
+            W_roe = self.to_primitive(U_roe)
+            c_roe = self.sound_speed(W_roe)
+            return np.array([W_roe[self.velocity_index], c_roe])
+    
     def roe_eigenstructure(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute Roe eigenstructure (numerical default).
 
@@ -206,24 +204,6 @@ class EquationSystem:
         delta = 0.1 * c_roe
         return eigenvalues, eigenvectors, delta
 
-    def roe_eigenstructure_2(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
-        """Compute Roe eigenstructure (numerical default).
-
-        Args:
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-            UL (np.ndarray): Left conservative state.
-            UR (np.ndarray): Right conservative state.
-
-        Returns:
-            tuple: Eigenvalues, eigenvectors, and entropy fix parameter (delta).
-        """
-        n = len(WL)
-        eigenvalues = np.zeros(n)
-        eigenvectors = np.eye(n)
-        delta = 0.0
-        return eigenvalues, eigenvectors, delta
-
     def roe_wave_strengths(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """Compute Roe wave strengths (numerical default).
 
@@ -242,20 +222,6 @@ class EquationSystem:
         alpha = delta_U / (n_vars + 1e-10)
         return alpha[:n_vars]
 
-    def roe_wave_strengths_2(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        """Compute Roe wave strengths (numerical default).
-
-        Args:
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-            UL (np.ndarray): Left conservative state.
-            UR (np.ndarray): Right conservative state.
-
-        Returns:
-            np.ndarray: Wave strength coefficients (alpha).
-        """
-        return np.zeros(len(WL))
-    
     def roe_states_and_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute Roe-averaged state, eigenstructure, wave strengths, and flux (numerical default).
 

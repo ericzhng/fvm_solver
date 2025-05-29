@@ -1,8 +1,9 @@
 import argparse
 import numpy as np
-from src.isentropic_gas import IsentropicGasSystem
-from src.shallow_water import ShallowWaterSystem
-from src.euler import EulerEquationSystem
+from src.boundary import BoundaryCondition
+from src.equation.isentropic_gas_equation import IsentropicGas
+from src.equation.shallow_water_equation import ShallowWater
+from src.equation.euler_equation import EulerEquation
 from src.solver import Solver
 
 
@@ -16,12 +17,12 @@ def parse_args():
     parser.add_argument('--equation', type=str, default='euler', choices=['isentropic', 'shallow_water', 'euler'], help='specify the equation system to solve')
     parser.add_argument('--nx', type=int, default=100, help='Number of grid points')
     parser.add_argument('--T', type=float, default=0.1, help='Final simulation time')
-    parser.add_argument('--cfl', type=float, default=0.2, help='CFL number')
-    parser.add_argument('--flux', type=str, default='hllc', choices=['lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe'], help='Numerical flux method')
+    parser.add_argument('--cfl', type=float, default=0.4, help='CFL number')
+    parser.add_argument('--flux', type=str, default='roe', choices=['lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe'], help='Numerical flux method')
     parser.add_argument('--reconstruction', type=str, default='muscl', choices=['piecewise_constant', 'muscl', 'ppm', 'weno5'], help='Reconstruction method')
+    parser.add_argument('--limiter', type=str, default='superbee', choices=['minmod', 'superbee', 'vanleer', 'mc', 'koren', 'osher', 'sweby', 'umist', 'none'], help='limiter method')
     parser.add_argument('--bc_type', type=str, default='neumann', choices=['neumann', 'periodic', 'dirichlet', 'reflective'], help='Boundary condition type')
     return parser.parse_args()
-
 
 def main():
     """Run the solver with specified parameters and plot results."""
@@ -29,28 +30,39 @@ def main():
 
     # Select equation system
     equation_systems = {
-        'euler': EulerEquationSystem(gamma=1.4),
-        'isentropic': IsentropicGasSystem(gamma=1.4, k=1.0),
-        'shallow_water': ShallowWaterSystem(g=9.81),
+        'euler': EulerEquation(gamma=1.4),
+        'isentropic': IsentropicGas(gamma=1.4, k=1.0),
+        'shallow_water': ShallowWater(g=9.81),
     }
     equation = equation_systems[args.equation]
-
-    # Initialize solver
-    solver = Solver(
-        equation_system=equation,
-        flux=args.flux,
-        reconstruction=args.reconstruction,
-        cfl=args.cfl,
-        bc_type=args.bc_type
-    )
 
     # Set up grid
     x = np.linspace(0, 1, args.nx + 1)
     n_vars = len(equation.get_variable_names())
     W = np.zeros((n_vars, args.nx))
 
-    solver.specify_dx(x)
-    # solver.specify_bc(left, right)
+    # Set up boundary conditions
+    if args.bc_type == 'neumann':
+        left_values = np.zeros(equation.n_vars)
+        right_values = np.zeros(equation.n_vars)
+    elif args.bc_type == 'dirichlet':
+        left_values = np.array([2.0, 0.0])  # Example Dirichlet values
+        right_values = np.array([1.0, 0.0])
+    else:
+        left_values = None
+        right_values = None
+    
+    bc = BoundaryCondition(equation, args.bc_type.lower(), x, left_values=left_values, right_values=right_values)
+
+    # Initialize solver
+    solver = Solver(
+        equation_system=equation,
+        boundary_condition=bc,
+        reconstruction=args.reconstruction,
+        flux=args.flux,
+        cfl=args.cfl,
+        limiter='minmod' if args.reconstruction == 'muscl' else None
+    )
 
     totalT = args.T
 

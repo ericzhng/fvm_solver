@@ -1,8 +1,8 @@
 import numpy as np
-from .equation import EquationSystem
+from .base_equation import EquationSystem
 
 
-class ShallowWaterSystem(EquationSystem):
+class ShallowWater(EquationSystem):
     """Shallow water equations for 1D flows.
 
     Models conservation of water height and momentum with gravitational effects.
@@ -115,7 +115,7 @@ class ShallowWaterSystem(EquationSystem):
         h = np.maximum(h, self.min_var)
         return np.array([h * u, h * u**2 + 0.5 * self.g * h**2])
 
-    def hllc_states_and_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute HLLC wave speeds, intermediate states, and flux for shallow water equations.
 
         Combines wave speed and intermediate state calculations for HLLC flux.
@@ -127,10 +127,7 @@ class ShallowWaterSystem(EquationSystem):
             UR (np.ndarray): Right conservative state [height, momentum].
 
         Returns:
-            tuple: (S_L, S_R, S_star, UL_star, UR_star, F), where:
-                - S_L, S_R, S_star: Left, right, and contact wave speeds.
-                - UL_star, UR_star: Left and right intermediate conservative states.
-                - F: HLLC numerical flux.
+            F: HLLC numerical flux.
 
         Raises:
             ValueError: If input shapes are invalid.
@@ -170,73 +167,9 @@ class ShallowWaterSystem(EquationSystem):
         else:
             F = FR
             
-        return S_L, S_R, S_star, UL_star, UR_star, F
+        return F
     
-    def roe_averaged_state(self, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute Roe-averaged state variables.
-
-        Args:
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-
-        Returns:
-            np.ndarray: [h_roe, u_roe, c_roe].
-        """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR]):
-            raise ValueError(f"WL and WR must have shape ({self.n_vars},)")
-        hL, uL = WL
-        hR, uR = WR
-        hL = np.maximum(hL, self.min_var)
-        hR = np.maximum(hR, self.min_var)
-        h_roe = np.sqrt(hL * hR)
-        u_roe = (uL * np.sqrt(hL) + uR * np.sqrt(hR)) / (np.sqrt(hL) + np.sqrt(hR) + self.min_var)
-        c_roe = np.sqrt(self.g * h_roe)
-        return np.array([h_roe, u_roe, c_roe])
-
-    def roe_eigenstructure(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
-        """Compute Roe eigenstructure for shallow water equations.
-
-        Args:
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-            UL (np.ndarray): Left conservative state.
-            UR (np.ndarray): Right conservative state.
-
-        Returns:
-            tuple: Eigenvalues, eigenvectors, and entropy fix parameter (delta).
-        """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
-        h_roe, u_roe, c_roe = self.roe_averaged_state(WL, WR)
-        eigenvalues = np.array([u_roe - c_roe, u_roe + c_roe])
-        eigenvectors = [
-            np.array([1, u_roe - c_roe]),
-            np.array([1, u_roe + c_roe])
-        ]
-        delta = 0.1 * c_roe
-        return eigenvalues, eigenvectors, delta
-
-    def roe_wave_strengths(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        """Compute Roe wave strengths for shallow water equations.
-
-        Args:
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-            UL (np.ndarray): Left conservative state.
-            UR (np.ndarray): Right conservative state.
-
-        Returns:
-            np.ndarray: Wave strength coefficients.
-        """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
-        h_roe, u_roe, c_roe = self.roe_averaged_state(WL, WR)
-        delta_U = UR - UL
-        alpha_2 = (delta_U[0] * (u_roe - c_roe) - delta_U[1]) / (-2 * c_roe + self.min_var)
-        alpha_1 = delta_U[0] - alpha_2
-        return np.array([alpha_1, alpha_2])
-
-    def roe_states_and_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute Roe-averaged state, eigenstructure, wave strengths, and flux for shallow water equations.
 
         Combines Roe-related calculations for Roe flux with entropy fix.
@@ -294,5 +227,5 @@ class ShallowWaterSystem(EquationSystem):
             abs_A += abs_lambda * wave_strengths[i] * eigenvectors[i]
         F = 0.5 * (FL + FR - abs_A)
         
-        return h_roe, u_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F
+        return F
     

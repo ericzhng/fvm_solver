@@ -1,5 +1,5 @@
 import numpy as np
-from src.equation import EquationSystem
+from .equation.base_equation import EquationSystem
 
 class BoundaryCondition:
     """Handles boundary conditions for finite volume schemes.
@@ -14,9 +14,8 @@ class BoundaryCondition:
         right_values (np.ndarray): Values or gradients at right boundary.
         dx (float): Grid spacing for Neumann conditions.
     """
-
-    def __init__(self, equation_system: EquationSystem, bc_type: str, 
-                 left_values: np.ndarray = None, right_values: np.ndarray = None, dx: float = 1.0):
+    def __init__(self, equation_system: EquationSystem, bc_type: str, x: np.ndarray, 
+                 left_values: np.ndarray = None, right_values: np.ndarray = None):
         """Initialize boundary condition handler.
 
         Args:
@@ -32,15 +31,15 @@ class BoundaryCondition:
         """
         if not isinstance(equation_system, EquationSystem):
             raise TypeError("equation_system must be an EquationSystem instance")
-        if dx <= 0:
-            raise ValueError("dx must be positive")
+
         self.equation_system = equation_system
         self.bc_type = bc_type.lower()
+        self.x = x
+
         self.left_values = (left_values if left_values is not None 
                           else np.zeros(equation_system.n_vars))
         self.right_values = (right_values if right_values is not None 
                            else np.zeros(equation_system.n_vars))
-        self.dx = dx
         valid_bcs = {'dirichlet', 'neumann', 'periodic', 'reflective'}
         if self.bc_type not in valid_bcs:
             raise ValueError(f"bc_type must be one of {valid_bcs}")
@@ -82,16 +81,18 @@ class BoundaryCondition:
             U_new[:, n_cells + n_ghost:] = right_conservative[:, np.newaxis]
 
         elif self.bc_type == 'neumann':
+            dx = self.x[1] - self.x[0]
+
             # Enforce gradient in primitive variables
             W_bc_left = self.equation_system.to_primitive(U[:,0])  # Convert all cells to primitive
             W_bc_right = self.equation_system.to_primitive(U[:,-1])  # Convert all cells to primitive
             for i in range(n_ghost):
-                # Left: W_i = W_n_ghost - (n_ghost - i) * dx * gradient
-                W_left = W_bc_left - (n_ghost - i) * self.dx * self.left_values
+                # Left
+                W_left = W_bc_left - (n_ghost - i) * dx * self.left_values
                 U_new[:, i] = self.equation_system.to_conservative(W_left)
 
-                # Right: W_{n_cells+n_ghost+i} = W_{n_cells+n_ghost-1} + (i + 1) * dx * gradient
-                W_right = W_bc_right + (i + 1) * self.dx * self.right_values
+                # Right
+                W_right = W_bc_right + (i + 1) * dx * self.right_values
                 U_new[:, n_cells + n_ghost + i] = self.equation_system.to_conservative(W_right)
 
         elif self.bc_type == 'periodic':

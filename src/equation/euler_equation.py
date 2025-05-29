@@ -1,8 +1,9 @@
 import numpy as np
-from .equation import EquationSystem
+import math
+from .base_equation import EquationSystem
 
 
-class EulerEquationSystem(EquationSystem):
+class EulerEquation(EquationSystem):
     """Euler equations for 1D compressible gas dynamics.
 
     Models conservation of mass, momentum, and energy.
@@ -36,6 +37,7 @@ class EulerEquationSystem(EquationSystem):
         """
         if W.shape != (self.n_vars,):
             raise ValueError(f"W must have shape ({self.n_vars},)")
+        
         rho, u, p = W
         rho = np.maximum(rho, self.min_var)
         p = np.maximum(p, self.min_var)
@@ -53,6 +55,7 @@ class EulerEquationSystem(EquationSystem):
         """
         if U.shape != (self.n_vars,):
             raise ValueError(f"U must have shape ({self.n_vars},)")
+        
         rho, m, E = U
         rho = np.maximum(rho, self.min_var)
         u = m / rho
@@ -71,6 +74,7 @@ class EulerEquationSystem(EquationSystem):
         """
         if W.shape != (self.n_vars,):
             raise ValueError(f"W must have shape ({self.n_vars},)")
+        
         rho, p = W[0], W[2]
         rho = np.maximum(rho, self.min_var)
         p = np.maximum(p, self.min_var)
@@ -94,7 +98,7 @@ class EulerEquationSystem(EquationSystem):
         E = U[2]  # Total energy
         return np.array([rho * u, rho * u**2 + p, u * (E + p)])
         
-    def hllc_states_and_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute HLLC wave speeds, intermediate states, and flux for Euler equations.
 
         Args:
@@ -104,10 +108,7 @@ class EulerEquationSystem(EquationSystem):
             UR (np.ndarray): Right conservative state [density, momentum, energy].
 
         Returns:
-            tuple: (S_L, S_R, S_star, UL_star, UR_star, F), where:
-                - S_L, S_R, S_star: Left, right, and contact wave speeds.
-                - UL_star, UR_star: Left and right intermediate conservative states.
-                - F: HLLC numerical flux.
+            F: numerical flux
         """
         if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
             raise ValueError(f"All inputs must have shape ({self.n_vars},)")
@@ -115,6 +116,7 @@ class EulerEquationSystem(EquationSystem):
         # Extract variables
         rhoL, uL, pL = WL
         rhoR, uR, pR = WR
+
         rhoL = np.maximum(rhoL, self.min_var)
         rhoR = np.maximum(rhoR, self.min_var)
         pL = np.maximum(pL, self.min_var)
@@ -126,16 +128,20 @@ class EulerEquationSystem(EquationSystem):
         S_L = min(uL - cL, uR - cR)
         S_R = max(uL + cL, uR + cR)
         denom = rhoL * (S_L - uL) - rhoR * (S_R - uR)
-        S_star = 0.5 * (uL + uR) if abs(denom) < self.min_var else (
-            pR - pL + rhoL * uL * (S_L - uL) - rhoR * uR * (S_R - uR)) / denom
+        if abs(denom) < self.min_var:
+            S_star = 0.5 * (uL + uR) 
+        else:
+            S_star = (pR - pL + rhoL * uL * (S_L - uL) - rhoR * uR * (S_R - uR)) / denom
 
         # Compute intermediate states
         rhoL_star = max(rhoL * (S_L - uL) / (S_L - S_star + self.min_var), self.min_var)
         rhoR_star = max(rhoR * (S_R - uR) / (S_R - S_star + self.min_var), self.min_var)
+
         EL = UL[2] / (rhoL + self.min_var) + (S_star - uL) * (
             S_star + pL / (rhoL * (S_L - uL) + self.min_var))
         ER = UR[2] / (rhoR + self.min_var) + (S_star - uR) * (
             S_star + pR / (rhoR * (S_R - uR) + self.min_var))
+        
         UL_star = np.array([rhoL_star, rhoL_star * S_star, rhoL_star * EL])
         UR_star = np.array([rhoR_star, rhoR_star * S_star, rhoR_star * ER])
 
@@ -151,81 +157,9 @@ class EulerEquationSystem(EquationSystem):
         else:
             F = FR
 
-        return S_L, S_R, S_star, UL_star, UR_star, F
+        return F
 
-    def roe_averaged_state(self, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute Roe-averaged state variables.
-
-        Args:
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-
-        Returns:
-            np.ndarray: [rho_roe, u_roe, h_roe, c_roe].
-        """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR]):
-            raise ValueError(f"WL and WR must have shape ({self.n_vars},)")
-        rhoL, uL, pL = WL
-        rhoR, uR, pR = WR
-        hL = (self.to_conservative(WL)[2] + pL) / (rhoL + self.min_var)
-        hR = (self.to_conservative(WR)[2] + pR) / (rhoR + self.min_var)
-        rho_roe = np.sqrt(rhoL * rhoR)
-        u_roe = (uL * np.sqrt(rhoL) + uR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
-        h_roe = (hL * np.sqrt(rhoL) + hR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
-        c_roe = np.sqrt((self.gamma - 1) * (h_roe - 0.5 * u_roe**2))
-        return np.array([rho_roe, u_roe, h_roe, c_roe])
-    
-    def roe_eigenstructure(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
-        """Compute Roe eigenstructure for Euler equations.
-
-        Args:
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-            UL (np.ndarray): Left conservative state.
-            UR (np.ndarray): Right conservative state.
-
-        Returns:
-            tuple: Eigenvalues, eigenvectors, and entropy fix parameter (delta).
-        """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
-        _, u_roe, h_roe, c_roe = self.roe_averaged_state(WL, WR)
-        eigenvalues = np.array([u_roe - c_roe, u_roe, u_roe + c_roe])
-        eigenvectors = [
-            np.array([1, u_roe - c_roe, h_roe - u_roe * c_roe]),
-            np.array([1, u_roe, 0.5 * u_roe**2]),
-            np.array([1, u_roe + c_roe, h_roe + u_roe * c_roe])
-        ]
-        delta = 0.1 * c_roe
-        return eigenvalues, eigenvectors, delta
-
-    def roe_wave_strengths(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        """Compute Roe wave strengths for Euler equations.
-
-        Args:
-            WL (np.ndarray): Left primitive state.
-            WR (np.ndarray): Right primitive state.
-            UL (np.ndarray): Left conservative state.
-            UR (np.ndarray): Right conservative state.
-
-        Returns:
-            np.ndarray: Wave strength coefficients (alpha).
-        """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
-        _, u_roe, h_roe, c_roe = self.roe_averaged_state(WL, WR)
-        delta_U = UR - UL
-        delta_rho = delta_U[0]
-        delta_rho_u = delta_U[1]
-        delta_rho_E = delta_U[2]
-        alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_var)) * (
-            delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
-        )
-        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_var)
-        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_var)
-        return np.array([alpha_1, alpha_2, alpha_3])
-
-    def roe_states_and_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """Compute Roe-averaged state, eigenstructure, wave strengths, and flux for Euler equations.
 
         Args:
@@ -235,32 +169,58 @@ class EulerEquationSystem(EquationSystem):
             UR (np.ndarray): Right conservative state [density, momentum, energy].
 
         Returns:
-            tuple: (rho_roe, u_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F), where:
-                - rho_roe, u_roe: Roe-averaged density and velocity.
-                - c_roe: Roe-averaged sound speed.
-                - eigenvalues: Roe eigenvalues.
-                - eigenvectors: Roe eigenvectors.
-                - delta: Entropy fix parameter.
-                - wave_strengths: Wave strength coefficients.
-                - F: Roe numerical flux.
+            F: Roe numerical flux.
+        
+        Others: (rho_roe, u_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F), where:
+            - rho_roe, u_roe: Roe-averaged density and velocity.
+            - c_roe: Roe-averaged sound speed.
+            - eigenvalues: Roe eigenvalues.
+            - eigenvectors: Roe eigenvectors.
+            - delta: Entropy fix parameter.
+            - wave_strengths: Wave strength coefficients.
         """
         if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
             raise ValueError(f"All inputs must have shape ({self.n_vars},)")
+        
+        rhoL, uL, pL = WL
+        rhoR, uR, pR = WR
+        hL = (UL[2] + pL) / (rhoL + self.min_var)
+        hR = (UR[2] + pR) / (rhoR + self.min_var)
+        # Roe averages
+        rho_roe = np.sqrt(rhoL * rhoR)
+        u_roe = (uL * np.sqrt(rhoL) + uR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
+        h_roe = (hL * np.sqrt(rhoL) + hR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
+        c_roe = np.sqrt((self.gamma - 1) * (h_roe - 0.5 * u_roe**2))
 
-        # Roe-averaged state
-        rho_roe, u_roe, h_roe, c_roe = self.roe_averaged_state(WL, WR)
+        # Eigenvalues
+        eigenvalues = np.array([u_roe - c_roe, u_roe, u_roe + c_roe])
+        eigenvectors = [
+            np.array([1, u_roe - c_roe, h_roe - u_roe * c_roe]),
+            np.array([1, u_roe, 0.5 * u_roe**2]),
+            np.array([1, u_roe + c_roe, h_roe + u_roe * c_roe])
+        ]
+        delta = 0.1 * c_roe
 
-        # Eigenstructure and wave strengths
-        eigenvalues, eigenvectors, delta = self.roe_eigenstructure(WL, WR, UL, UR)
-        wave_strengths = self.roe_wave_strengths(WL, WR, UL, UR)
+        # Wave strengths
+        delta_U = UR - UL
+        delta_rho = delta_U[0]
+        delta_rho_u = delta_U[1]
+        delta_rho_E = delta_U[2]
+        alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_var)) * (
+            delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
+        )
+        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_var)
+        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_var)
+        wave_strengths = np.array([alpha_1, alpha_2, alpha_3])
 
         # Compute flux
         FL = self.compute_flux(UL, WL)
         FR = self.compute_flux(UR, WR)
+
         abs_A = np.zeros_like(FL)
         for i in range(len(eigenvalues)):
-            abs_lambda = abs(eigenvalues[i]) if abs(eigenvalues[i]) > delta else (eigenvalues[i]**2 + delta**2) / (2 * delta)
+            abs_lambda = abs(eigenvalues[i]) if abs(eigenvalues[i]) > delta else (eigenvalues[i] + np.sqrt(eigenvalues[i]**2 + delta**2)) / 2.0
             abs_A += abs_lambda * wave_strengths[i] * eigenvectors[i]
         F = 0.5 * (FL + FR - abs_A)
 
-        return rho_roe, u_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F
+        return F
