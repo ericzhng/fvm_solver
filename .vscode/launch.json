@@ -10,14 +10,7 @@
             "request": "launch",
             "program": "main_test.py",
             "args": [
-                "--equation", "euler",
-                "--nx", "100",
-                "--T", "0.1",
-                "--cfl", "0.2",
-                "--flux", "roe",
-                "--reconstruction", "muscl",
-                "--limiter", "mc",
-                "--bc_type", "neumann"
+                "--config", "input_config.xml"
                 ],
             "console": "integratedTerminal"
         }

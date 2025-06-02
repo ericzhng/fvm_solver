@@ -1,111 +1,167 @@
 import argparse
 import numpy as np
+import xml.etree.ElementTree as ET
+from typing import Union
 from src.boundary import BoundaryCondition
 from src.equation.isentropic_gas_equation import IsentropicGas
 from src.equation.shallow_water_equation import ShallowWater
 from src.equation.euler_equation import EulerEquation
 from src.solver import Solver
 
+def generate_non_uniform_grid(xmin, xmax, nx, stretch_factor=1.0, dim=1) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
+    """Generate a non-uniform grid for 1D, 2D, or 3D domains.
 
-def generate_non_uniform_grid(xmin, xmax, nx, stretch_factor=1.0):
+    Args:
+        xmin (float): Minimum coordinate.
+        xmax (float): Maximum coordinate.
+        nx (int): Number of grid points.
+        stretch_factor (float): Grid stretching factor.
+        dim (int): Dimension of the grid (1, 2, or 3).
+
+    Returns:
+        np.ndarray: Grid coordinates.
+    """
     x = np.zeros(nx + 1)
     for i in range(nx + 1):
         x[i] = xmin + (xmax - xmin) * (1 - np.cos(np.pi * i / nx)) / 2 * stretch_factor
-    return x
+    if dim == 1:
+        return x
+    elif dim == 2:
+        return np.meshgrid(x, x)
+    elif dim == 3:
+        return np.meshgrid(x, x, x)
+    else:
+        raise ValueError("Dimension must be 1, 2, or 3")
 
-def parse_args():
-    """Parse command-line arguments for the solver.
+def get_text(element, default=None, required=False, cast=None):
+    if element is not None and element.text is not None:
+        try:
+            return cast(element.text) if cast else element.text
+        except Exception:
+            if required:
+                raise ValueError(f"Invalid value for element {element.tag}")
+            return default
+    if required:
+        raise ValueError(f"Missing required element or text for {element.tag if element is not None else 'unknown'}")
+    return default
+
+def parse_xml_config(filename):
+    """Parse simulation configuration from XML file.
+
+    Args:
+        filename (str): Path to XML configuration file.
 
     Returns:
-        argparse.Namespace: Parsed arguments.
+        dict: Configuration parameters.
     """
-    parser = argparse.ArgumentParser(description='Finite Volumne based Riemann Solver for 1D Hyperbolic Conservation Law')
-    parser.add_argument('--equation', type=str, default='euler', choices=['isentropic', 'shallow_water', 'euler'], help='specify the equation system to solve')
-    parser.add_argument('--nx', type=int, default=100, help='Number of grid points')
-    parser.add_argument('--T', type=float, default=0.1, help='Final simulation time')
-    parser.add_argument('--cfl', type=float, default=0.4, help='CFL number')
-    parser.add_argument('--flux', type=str, default='roe', choices=['lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe'], help='Numerical flux method')
-    parser.add_argument('--reconstruction', type=str, default='muscl', choices=['piecewise_constant', 'muscl', 'ppm', 'weno5'], help='Reconstruction method')
-    parser.add_argument('--reconstruction_vars', type=str, default='conservative', choices=['primitive', 'conservative'], help='Variable type for reconstruction')
-    parser.add_argument('--limiter', type=str, default='superbee', choices=['minmod', 'superbee', 'vanleer', 'mc', 'koren', 'osher', 'sweby', 'umist', 'none'], help='limiter method')
-    return parser.parse_args()
+    tree = ET.parse(filename)
+    root = tree.getroot()
+    config = {}
+
+    config['dimension'] = get_text(root.find('geometry/dimension'), default=1, required=True, cast=int)
+    config['xmin'] = get_text(root.find('geometry/domain/xmin'), default=0.0, required=True, cast=float)
+    config['xmax'] = get_text(root.find('geometry/domain/xmax'), default=1.0, required=True, cast=float)
+    config['nx'] = get_text(root.find('mesh/nx'), default=100, required=True, cast=int)
+    config['stretch_factor'] = get_text(root.find('mesh/stretch_factor'), default=1.0, cast=float)
+    config['equation'] = get_text(root.find('equation/type'), default='euler')
+    config['gamma'] = get_text(root.find('equation/gamma'), default=1.4, cast=float) if config['equation'] == 'euler' else 1.4
+    config['bc_type'] = get_text(root.find('boundary_conditions/type'), default='dirichlet')
+
+    left_values_elem = root.find('boundary_conditions/left_values')
+    config['left_values'] = np.array([float(v.text) for v in left_values_elem if v.text is not None] if left_values_elem is not None else [])
+
+    right_values_elem = root.find('boundary_conditions/right_values')
+    config['right_values'] = np.array([float(v.text) for v in right_values_elem if v.text is not None] if right_values_elem is not None else [])
+
+    ic_euler_left_elem = root.find('initial_conditions/euler/left')
+    ic_euler_right_elem = root.find('initial_conditions/euler/right')
+    ic_euler_split_elem = root.find('initial_conditions/euler/split')
+    config['initial_conditions'] = {
+        'euler': {
+            'left': np.array([float(v.text) for v in ic_euler_left_elem if v.text is not None] if ic_euler_left_elem is not None else []),
+            'right': np.array([float(v.text) for v in ic_euler_right_elem if v.text is not None] if ic_euler_right_elem is not None else []),
+            'split': float(ic_euler_split_elem.text) if ic_euler_split_elem is not None and ic_euler_split_elem.text is not None else 0.5
+        }
+    }
+    config['T'] = get_text(root.find('solver_settings/T'), default=1.0, cast=float)
+    config['cfl'] = get_text(root.find('solver_settings/cfl'), default=0.5, cast=float)
+    config['flux'] = get_text(root.find('solver_settings/flux'), default='roe')
+    config['reconstruction'] = get_text(root.find('solver_settings/reconstruction'), default='linear')
+    config['reconstruction_vars'] = get_text(root.find('solver_settings/reconstruction_vars'), default='primitive')
+    config['limiter'] = get_text(root.find('solver_settings/limiter'), default='minmod')
+    config['max_iterations'] = get_text(root.find('solver_settings/max_iterations'), default=10000, cast=int)
+    config['convergence_tolerance'] = get_text(root.find('solver_settings/convergence_tolerance'), default=1e-6, cast=float)
+    config['output_format'] = get_text(root.find('output/format'), default='csv')
+    config['output_filename'] = get_text(root.find('output/filename'), default='output.csv')
+
+    return config
 
 def main():
-    """Run the solver with specified parameters and plot results."""
-    args = parse_args()
+    """
+    Run the finite volume solver with XML configuration and save results.
 
-    bc_type = 'neumann'
+    Reads configuration, sets up the equation system, grid, initial and boundary conditions,
+    runs the solver, and plots the final solution snapshot.
+    """
+    parser = argparse.ArgumentParser(description='Finite Volume Riemann Solver for 1D/2D/3D Hyperbolic Conservation Laws')
+    parser.add_argument('--config', type=str, default='input_config.xml', help='Path to XML configuration file')
+    args = parser.parse_args()
+
+    config = parse_xml_config(args.config)
 
     # Select equation system
     equation_systems = {
-        'euler': EulerEquation(gamma=1.4),
-        'isentropic': IsentropicGas(gamma=1.4, k=1.0),
+        'euler': EulerEquation(gamma=config['gamma']),
+        'isentropic': IsentropicGas(gamma=config['gamma'], k=1.0),
         'shallow_water': ShallowWater(g=9.81),
     }
-    equation = equation_systems[args.equation]
+    equation = equation_systems[config['equation']]
 
     # Set up grid
-    x = generate_non_uniform_grid(0, 1, args.nx, stretch_factor=1.0)
+    grid = generate_non_uniform_grid(config['xmin'], config['xmax'], config['nx'], config['stretch_factor'], config['dimension'])
+    if isinstance(grid, tuple):
+        grid = np.array(grid[0]).flatten()
     
     n_vars = len(equation.get_variable_names())
-    W = np.zeros((n_vars, args.nx))
+    W = np.zeros((n_vars, config['nx']), dtype=float)
 
-    # Set up boundary conditions
-    if bc_type == 'neumann':
-        left_values = np.zeros(equation.n_vars)
-        right_values = np.zeros(equation.n_vars)
-    elif bc_type == 'dirichlet':
-        left_values = np.array([2.0, 0.0])  # Example Dirichlet values
-        right_values = np.array([1.0, 0.0])
-    else:
-        left_values = np.zeros(equation.n_vars)
-        right_values = np.zeros(equation.n_vars)
-    
-    bc2apply = BoundaryCondition(equation, bc_type.lower(), x, left_values=left_values, right_values=right_values)
+    # Set initial conditions
+    if config['equation'] == 'euler':
+        split_idx = int(config['nx'] * config['initial_conditions']['euler']['split'])
+        W[:, :split_idx] = np.array(config['initial_conditions']['euler']['left'], dtype=float)[:, np.newaxis]
+        W[:, split_idx:] = np.array(config['initial_conditions']['euler']['right'], dtype=float)[:, np.newaxis]
 
-    if args.reconstruction_vars == 'primitive':
-        use_primitive = True
-    else:
-        use_primitive = False
+    # Set up boundary conditions (use new argument names)
+    bc = BoundaryCondition(
+        equation_system=equation,
+        bc_kind=config['bc_type'],
+        grid=grid,
+        left_boundary_state=config['left_values'],
+        right_boundary_state=config['right_values']
+    )
 
     # Initialize solver
     solver = Solver(
         equation_system=equation,
-        boundary_condition=bc2apply,
-        cfl=args.cfl,
-        flux=args.flux,
-        reconstruction=args.reconstruction,
-        use_primitive_reconstruction=use_primitive,
-        limiter='minmod' if args.reconstruction == 'muscl' else 'none'
+        boundary_condition=bc,
+        grid=grid,
+        cfl=config['cfl'],
+        flux=config['flux'],
+        reconstruction=config['reconstruction'],
+        reconstruct_in_primitive=(config['reconstruction_vars'] == 'primitive'),
+        limiter=config['limiter'],
+        max_iterations=config['max_iterations'],
+        convergence_tol=config['convergence_tolerance'],
+        output_filename=config['output_filename']
     )
 
-    totalT = args.T
-
-    # Set initial conditions based on equation system
-    if args.equation == 'isentropic':
-        W[0, :args.nx//2] = 2.0  # Higher density left
-        W[0, args.nx//2:] = 1.0  # Lower density right
-        W[1, :] = 0.0  # Zero velocity
-
-    elif args.equation == 'shallow_water':
-        W[0, :] = 1.0  # Constant height
-        W[1, :args.nx//2] = 0.5  # Positive velocity left
-        W[1, args.nx//2:] = -0.5  # Negative velocity right
-
-    elif args.equation == 'euler':  # euler
-        W[0, :] = 0.125  # Baseline density
-        W[1, :] = 0.0  # Zero velocity
-        W[2, :] = 0.1  # Constant pressure
-        W[0, :args.nx//2] = 1.0  # Higher density left
-        W[2, :args.nx//2] = 1.0  # Higher pressure left
-
     # Convert to conservative variables
-    U0 = np.array([equation.to_conservative(W[:, i]) for i in range(args.nx)]).T
+    U0 = equation.to_conservative_batch(W)
 
-    # Solve and plot
-    U_history, final_t = solver.solve(U0, x, totalT, n_ghost=2)
-    print(f"Final simulation time reached: {final_t:.4f}")
-    solver.plot_solution(U_history, x, totalT, 'height' if args.equation == 'shallow_water' else 'density')
+    # Solve and save
+    U_history, final_t = solver.solve(U0, config['T'], n_ghost=2)
+    print(f"Final simulation time: {final_t:.4f}")
+    solver.plot_solution(U_history, final_t, 'density')
 
 if __name__ == '__main__':
     main()

@@ -1,10 +1,9 @@
 import numpy as np
-import math
 from .base_equation import EquationSystem
 
 
 class EulerEquation(EquationSystem):
-    """Euler equations for 1D compressible gas dynamics.
+    """1D Euler equations for compressible gas dynamics.
 
     Models conservation of mass, momentum, and energy.
     """
@@ -15,32 +14,27 @@ class EulerEquation(EquationSystem):
         Args:
             gamma (float): Ratio of specific heats (default: 1.4 for air).
         """
-        super().__init__(min_var=1e-10)
+        super().__init__(min_value=1e-10)
         self.gamma = gamma
-        self.velocity_index = 1
-        self.monitored_index = 0
-        self.safeguarded_indices = [0, 2]  # Density and pressure
-        self.variable_names = ['density', 'velocity', 'pressure']
-        self.n_vars = 3
+        self.vel_idx = 1
+        self.monitor_idx = 0
+        self.var_names = ['density', 'velocity', 'pressure']
+        self.num_vars = 3
 
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """Convert primitive variables to conservative variables.
 
-        Primitive: [density, velocity, pressure]
-        Conservative: [density, momentum, total energy]
-
         Args:
-            W (np.ndarray): Primitive variables [density, velocity, pressure].
+            W (np.ndarray): [density, velocity, pressure]
 
         Returns:
-            np.ndarray: Conservative variables [density, momentum, energy].
+            np.ndarray: [density, momentum, total energy]
         """
-        if W.shape != (self.n_vars,):
-            raise ValueError(f"W must have shape ({self.n_vars},)")
-        
+        if W.shape != (self.num_vars,):
+            raise ValueError(f"W must have shape ({self.num_vars},)")
         rho, u, p = W
-        rho = np.maximum(rho, self.min_var)
-        p = np.maximum(p, self.min_var)
+        rho = np.maximum(rho, self.min_value)
+        p = np.maximum(p, self.min_value)
         E = p / (self.gamma - 1) + 0.5 * rho * u**2
         return np.array([rho, rho * u, E])
 
@@ -48,104 +42,97 @@ class EulerEquation(EquationSystem):
         """Convert conservative variables to primitive variables.
 
         Args:
-            U (np.ndarray): Conservative variables [density, momentum, energy].
+            U (np.ndarray): [density, momentum, total energy]
 
         Returns:
-            np.ndarray: Primitive variables [density, velocity, pressure].
+            np.ndarray: [density, velocity, pressure]
         """
-        if U.shape != (self.n_vars,):
-            raise ValueError(f"U must have shape ({self.n_vars},)")
-        
+        if U.shape != (self.num_vars,):
+            raise ValueError(f"U must have shape ({self.num_vars},)")
         rho, m, E = U
-        rho = np.maximum(rho, self.min_var)
+        rho = np.maximum(rho, self.min_value)
         u = m / rho
         p = (E - 0.5 * rho * u**2) * (self.gamma - 1)
-        p = np.maximum(p, self.min_var)
+        p = np.maximum(p, self.min_value)
         return np.array([rho, u, p])
-    
+
     def sound_speed(self, W: np.ndarray) -> float:
         """Compute the sound speed for the gas.
 
         Args:
-            W (np.ndarray): Primitive variables [density, velocity, pressure].
+            W (np.ndarray): [density, velocity, pressure]
 
         Returns:
-            float: Sound speed sqrt(gamma * p / rho).
+            float: Sound speed (sqrt(gamma * p / rho))
         """
-        if W.shape != (self.n_vars,):
-            raise ValueError(f"W must have shape ({self.n_vars},)")
-        
-        rho, p = W[0], W[2]
-        rho = np.maximum(rho, self.min_var)
-        p = np.maximum(p, self.min_var)
+        if W.shape != (self.num_vars,):
+            raise ValueError(f"W must have shape ({self.num_vars},)")
+        rho, _, p = W
+        rho = np.maximum(rho, self.min_value)
+        p = np.maximum(p, self.min_value)
         return np.sqrt(self.gamma * p / rho)
-    
+
     def compute_flux(self, U: np.ndarray, W: np.ndarray) -> np.ndarray:
         """Compute the physical flux.
 
-        Flux: [rho*u, rho*u^2 + p, u*(E + p)]
-
         Args:
-            U (np.ndarray): Conservative variables [density, momentum, energy].
-            W (np.ndarray): Primitive variables [density, velocity, pressure].
+            U (np.ndarray): [density, momentum, total energy]
+            W (np.ndarray): [density, velocity, pressure]
 
         Returns:
-            np.ndarray: Flux vector.
+            np.ndarray: [rho*u, rho*u^2 + p, u*(E + p)]
         """
-        if U.shape != (self.n_vars,) or W.shape != (self.n_vars,):
-            raise ValueError(f"U and W must have shape ({self.n_vars},)")
+        if U.shape != (self.num_vars,) or W.shape != (self.num_vars,):
+            raise ValueError(f"U and W must have shape ({self.num_vars},)")
         rho, u, p = W
-        E = U[2]  # Total energy
+        E = U[2]
         return np.array([rho * u, rho * u**2 + p, u * (E + p)])
-        
+
     def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        """Compute HLLC wave speeds, intermediate states, and flux for Euler equations.
+        """Compute HLLC numerical flux for Euler equations.
 
         Args:
-            WL (np.ndarray): Left primitive state [density, velocity, pressure].
-            WR (np.ndarray): Right primitive state [density, velocity, pressure].
-            UL (np.ndarray): Left conservative state [density, momentum, energy].
-            UR (np.ndarray): Right conservative state [density, momentum, energy].
+            WL (np.ndarray): Left primitive state [density, velocity, pressure]
+            WR (np.ndarray): Right primitive state [density, velocity, pressure]
+            UL (np.ndarray): Left conservative state [density, momentum, energy]
+            UR (np.ndarray): Right conservative state [density, momentum, energy]
 
         Returns:
-            F: numerical flux
+            np.ndarray: HLLC numerical flux
         """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
+        if any(arr.shape != (self.num_vars,) for arr in [WL, WR, UL, UR]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
 
-        # Extract variables
+        # Extract and ensure positivity
         rhoL, uL, pL = WL
         rhoR, uR, pR = WR
+        rhoL = np.maximum(rhoL, self.min_value)
+        rhoR = np.maximum(rhoR, self.min_value)
+        pL = np.maximum(pL, self.min_value)
+        pR = np.maximum(pR, self.min_value)
 
-        rhoL = np.maximum(rhoL, self.min_var)
-        rhoR = np.maximum(rhoR, self.min_var)
-        pL = np.maximum(pL, self.min_var)
-        pR = np.maximum(pR, self.min_var)
-
-        # Compute wave speeds
+        # Wave speeds
         cL = np.sqrt(self.gamma * pL / rhoL)
         cR = np.sqrt(self.gamma * pR / rhoR)
         S_L = min(uL - cL, uR - cR)
         S_R = max(uL + cL, uR + cR)
         denom = rhoL * (S_L - uL) - rhoR * (S_R - uR)
-        if abs(denom) < self.min_var:
-            S_star = 0.5 * (uL + uR) 
+        if abs(denom) < self.min_value:
+            S_star = 0.5 * (uL + uR)
         else:
             S_star = (pR - pL + rhoL * uL * (S_L - uL) - rhoR * uR * (S_R - uR)) / denom
 
-        # Compute intermediate states
-        rhoL_star = max(rhoL * (S_L - uL) / (S_L - S_star + self.min_var), self.min_var)
-        rhoR_star = max(rhoR * (S_R - uR) / (S_R - S_star + self.min_var), self.min_var)
-
-        EL = UL[2] / (rhoL + self.min_var) + (S_star - uL) * (
-            S_star + pL / (rhoL * (S_L - uL) + self.min_var))
-        ER = UR[2] / (rhoR + self.min_var) + (S_star - uR) * (
-            S_star + pR / (rhoR * (S_R - uR) + self.min_var))
-        
+        # Intermediate states
+        rhoL_star = max(rhoL * (S_L - uL) / (S_L - S_star + self.min_value), self.min_value)
+        rhoR_star = max(rhoR * (S_R - uR) / (S_R - S_star + self.min_value), self.min_value)
+        EL = UL[2] / (rhoL + self.min_value) + (S_star - uL) * (
+            S_star + pL / (rhoL * (S_L - uL) + self.min_value))
+        ER = UR[2] / (rhoR + self.min_value) + (S_star - uR) * (
+            S_star + pR / (rhoR * (S_R - uR) + self.min_value))
         UL_star = np.array([rhoL_star, rhoL_star * S_star, rhoL_star * EL])
         UR_star = np.array([rhoR_star, rhoR_star * S_star, rhoR_star * ER])
 
-        # Compute flux
+        # Fluxes
         FL = self.compute_flux(UL, WL)
         FR = self.compute_flux(UR, WR)
         if S_L >= 0:
@@ -163,39 +150,33 @@ class EulerEquation(EquationSystem):
         """Compute Roe-averaged state, eigenstructure, wave strengths, and flux for Euler equations.
 
         Args:
-            WL (np.ndarray): Left primitive state [density, velocity, pressure].
-            WR (np.ndarray): Right primitive state [density, velocity, pressure].
-            UL (np.ndarray): Left conservative state [density, momentum, energy].
-            UR (np.ndarray): Right conservative state [density, momentum, energy].
+            WL (np.ndarray): Left primitive state [density, velocity, pressure]
+            WR (np.ndarray): Right primitive state [density, velocity, pressure]
+            UL (np.ndarray): Left conservative state [density, momentum, energy]
+            UR (np.ndarray): Right conservative state [density, momentum, energy]
 
-        Others: (rho_roe, u_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F), where:
-            - rho_roe, u_roe: Roe-averaged density and velocity.
-            - c_roe: Roe-averaged sound speed.
-            - eigenvalues: Roe eigenvalues.
-            - eigenvectors: Roe eigenvectors.
-            - delta: Entropy fix parameter.
-            - wave_strengths: Wave strength coefficients.
-        
         Returns:
-            F: Roe numerical flux.
+            np.ndarray: Roe numerical flux
         """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
-        
+        if any(arr.shape != (self.num_vars,) for arr in [WL, WR, UL, UR]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
+
         rhoL, uL, pL = WL
         rhoR, uR, pR = WR
-        rhoL = np.maximum(rhoL, self.min_var)
-        rhoR = np.maximum(rhoR, self.min_var)
+        rhoL = np.maximum(rhoL, self.min_value)
+        rhoR = np.maximum(rhoR, self.min_value)
         hL = (UL[2] + pL) / rhoL
         hR = (UR[2] + pR) / rhoR
 
         # Roe averages
-        rho_roe = np.sqrt(rhoL * rhoR)
-        u_roe = (uL * np.sqrt(rhoL) + uR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
-        h_roe = (hL * np.sqrt(rhoL) + hR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
+        sqrt_rhoL = np.sqrt(rhoL)
+        sqrt_rhoR = np.sqrt(rhoR)
+        denom = sqrt_rhoL + sqrt_rhoR + self.min_value
+        u_roe = (uL * sqrt_rhoL + uR * sqrt_rhoR) / denom
+        h_roe = (hL * sqrt_rhoL + hR * sqrt_rhoR) / denom
         c_roe = np.sqrt((self.gamma - 1) * (h_roe - 0.5 * u_roe**2))
 
-        # Eigenvalues
+        # Eigenvalues and eigenvectors
         eigenvalues = np.array([u_roe - c_roe, u_roe, u_roe + c_roe])
         eigenvectors = [
             np.array([1, u_roe - c_roe, h_roe - u_roe * c_roe]),
@@ -209,14 +190,16 @@ class EulerEquation(EquationSystem):
         delta_rho = delta_U[0]
         delta_rho_u = delta_U[1]
         delta_rho_E = delta_U[2]
-        alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_var*1E2)) * (
+        denom_c2 = c_roe**2 + self.min_value * 1e2
+        alpha_2 = ((self.gamma - 1) / denom_c2) * (
             delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
         )
-        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_var*1E2)
-        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_var*1E2)
+        denom_2c = 2 * c_roe + self.min_value * 1e2
+        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / denom_2c
+        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / denom_2c
         wave_strengths = np.array([alpha_1, alpha_2, alpha_3])
 
-        # Compute flux
+        # Fluxes
         FL = self.compute_flux(UL, WL)
         FR = self.compute_flux(UR, WR)
 

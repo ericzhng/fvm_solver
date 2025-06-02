@@ -2,14 +2,18 @@ import numpy as np
 
 
 class Limiter:
-    """Applies slope limiters for MUSCL reconstruction to ensure monotonicity.
+    """
+    Slope limiter for MUSCL-type finite volume schemes.
 
-    Supports minmod, superbee, van Leer, MC, Koren, Osher, Sweby, UMIST, and no limiting.
-    Limiters prevent oscillations near discontinuities in finite volume schemes.
+    Supports: minmod, superbee, van Leer, MC, Koren, Osher, Sweby, UMIST, and no limiting.
+    Limiters control spurious oscillations near discontinuities.
 
-    Attributes:
-        limiter_type (str): Type of limiter ('minmod', 'superbee', 'vanleer', 'mc', 'koren', 'osher', 'sweby', 'umist', 'none').
-        beta (float): Sharpness parameter for Osher and Sweby limiters (1 to 2).
+    Args:
+        limiter_type (str): Limiter name ('minmod', 'superbee', 'vanleer', 'mc', 'koren', 'osher', 'sweby', 'umist', 'none').
+        beta (float): Sharpness parameter for Osher/Sweby (1 ≤ beta ≤ 2, default 1.5).
+
+    Raises:
+        ValueError: If limiter_type is invalid or beta is out of [1, 2].
     """
 
     def __init__(self, limiter_type: str = 'minmod', beta: float = 1.5):
@@ -39,22 +43,24 @@ class Limiter:
             raise ValueError(f"Unsupported limiter: {self.limiter_type}. Choose from {list(self.limiters.keys())}")
 
     def limit(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
-        """Apply the limiter to two slopes.
+        """
+        Apply the selected limiter to two slope arrays.
 
         Args:
-            a (np.ndarray): First slope (left or forward difference).
-            b (np.ndarray): Second slope (right or backward difference).
+            a (np.ndarray): First slope (e.g., left/forward difference).
+            b (np.ndarray): Second slope (e.g., right/backward difference).
 
         Returns:
-            np.ndarray: Limited slope, same shape as inputs.
+            np.ndarray: Limited slope, same shape as input.
         """
         # Vectorized application of limiter
         return np.vectorize(self.limiters[self.limiter_type], otypes=[float])(a, b)
 
     def minmod(self, a: float, b: float) -> float:
-        """Minmod limiter: most dissipative, returns smallest slope if same sign.
+        """
+        Minmod limiter (most dissipative).
 
-        Formula: min(|a|, |b|) * sign(a) if a*b > 0, else 0.
+        Returns min(|a|, |b|) * sign(a) if a and b have the same sign, else 0.
 
         Args:
             a (float): First slope.
@@ -66,9 +72,10 @@ class Limiter:
         return np.sign(a) * min(abs(a), abs(b)) if a * b > 0 else 0.0
 
     def superbee(self, a: float, b: float) -> float:
-        """Superbee limiter: least dissipative, maximizes slope within stability.
+        """
+        Superbee limiter (least dissipative).
 
-        Formula: max(min(2|a|, |b|), min(|a|, 2|b|)) * sign(a) if a*b > 0, else 0.
+        Returns max(min(2|a|, |b|), min(|a|, 2|b|)) * sign(a) if a and b have the same sign, else 0.
 
         Args:
             a (float): First slope.
@@ -80,9 +87,10 @@ class Limiter:
         return np.sign(a) * max(min(2 * abs(a), abs(b)), min(abs(a), 2 * abs(b))) if a * b > 0 else 0.0
 
     def van_leer(self, a: float, b: float) -> float:
-        """Van Leer limiter: smooth, uses harmonic mean of slopes.
+        """
+        Van Leer limiter (smooth, harmonic mean).
 
-        Formula: 2ab/(a+b) if a*b > 0, else 0.
+        Returns 2ab/(a+b) if a and b have the same sign, else 0.
 
         Args:
             a (float): First slope.
@@ -94,9 +102,10 @@ class Limiter:
         return 2 * a * b / (a + b + 1e-10) if a * b > 0 else 0.0
 
     def mc(self, a: float, b: float) -> float:
-        """Monotonized Central limiter: balanced, less diffusive than minmod.
+        """
+        Monotonized Central (MC) limiter.
 
-        Formula: max(0, min((a+b)/2, 2a, 2b)) if a*b > 0, else 0.
+        Returns max(0, min((a+b)/2, 2a, 2b)) if a and b have the same sign, else 0.
 
         Args:
             a (float): First slope.
@@ -108,9 +117,10 @@ class Limiter:
         return max(0, min((a + b) / 2, 2 * a, 2 * b)) if a * b > 0 else 0.0
 
     def koren(self, a: float, b: float) -> float:
-        """Koren limiter: third-order in smooth regions.
+        """
+        Koren limiter (third-order in smooth regions).
 
-        Formula: max(0, min(2a, (2a+b)/3, 2b)) if a*b > 0, else 0.
+        Returns max(0, min(2a, (2a+b)/3, 2b)) if a and b have the same sign, else 0.
 
         Args:
             a (float): First slope.
@@ -122,9 +132,10 @@ class Limiter:
         return max(0, min(2 * a, (2 * a + b) / 3, 2 * b)) if a * b > 0 else 0.0
 
     def osher(self, a: float, b: float, beta: float) -> float:
-        """Osher limiter: adjustable sharpness via beta.
+        """
+        Osher limiter (adjustable sharpness).
 
-        Formula: max(0, min(a, beta*b)) if a*b > 0, else 0.
+        Returns max(0, min(a, beta*b)) if a and b have the same sign, else 0.
 
         Args:
             a (float): First slope.
@@ -137,9 +148,10 @@ class Limiter:
         return max(0, min(a, beta * b)) if a * b > 0 else 0.0
 
     def sweby(self, a: float, b: float, beta: float) -> float:
-        """Sweby limiter: tunable between minmod and superbee.
+        """
+        Sweby limiter (tunable between minmod and superbee).
 
-        Formula: max(0, min(beta*a, b), min(a, beta*b)) if a*b > 0, else 0.
+        Returns max(0, min(beta*a, b), min(a, beta*b)) if a and b have the same sign, else 0.
 
         Args:
             a (float): First slope.
@@ -152,9 +164,10 @@ class Limiter:
         return max(0, min(beta * a, b), min(a, beta * b)) if a * b > 0 else 0.0
 
     def umist(self, a: float, b: float) -> float:
-        """UMIST limiter: smooth, similar to Koren.
+        """
+        UMIST limiter (smooth, similar to Koren).
 
-        Formula: max(0, min(2a, (a+3b)/4, (3a+b)/4, 2b)) if a*b > 0, else 0.
+        Returns max(0, min(2a, (a+3b)/4, (3a+b)/4, 2b)) if a and b have the same sign, else 0.
 
         Args:
             a (float): First slope.
@@ -166,7 +179,8 @@ class Limiter:
         return max(0, min(2 * a, (a + 3 * b) / 4, (3 * a + b) / 4, 2 * b)) if a * b > 0 else 0.0
 
     def no_limiter(self, a: float, b: float) -> float:
-        """No limiter: returns first slope unchanged.
+        """
+        No limiter: returns the first slope unchanged.
 
         Args:
             a (float): First slope.

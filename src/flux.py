@@ -3,6 +3,16 @@ from .equation.base_equation import EquationSystem
 
 
 def numerical_jacobian(F, U, h=1e-6):
+    """Compute the numerical Jacobian matrix of F at U using central differences.
+
+    Args:
+        F (callable): Function mapping U to F(U).
+        U (np.ndarray): State vector.
+        h (float): Perturbation size.
+
+    Returns:
+        np.ndarray: Jacobian matrix.
+    """
     n = len(U)
     A = np.zeros((n, n))
     for j in range(n):
@@ -13,61 +23,65 @@ def numerical_jacobian(F, U, h=1e-6):
 
 
 class Flux:
-    """Class to compute numerical fluxes for hyperbolic conservation laws.
+    """Compute numerical fluxes for hyperbolic conservation laws.
 
-    Supports multiple flux methods: Lax-Friedrichs, Rusanov, FORCE, HLL, HLLC, Roe.
+    Supports: Lax-Friedrichs, Rusanov, FORCE, HLL, HLLC, Roe.
     """
 
     def __init__(self, equation_system: EquationSystem, lambda_max: float = 1.0):
-        """Initialize the flux calculator.
+        """
 
         Args:
             equation_system (EquationSystem): The equation system to compute fluxes for.
             lambda_max (float): Maximum wave speed for Lax-Friedrichs (default: 1.0).
         """
         self.equation_system = equation_system
-        self.min_var = equation_system.min_var
-        self.velocity_index = equation_system.velocity_index
-        self.safeguarded_indices = equation_system.safeguarded_indices
+        self.min_value = equation_system.min_value
+        self.vel_idx = equation_system.vel_idx
         self.lambda_max = lambda_max or 1.0
 
     def _is_invalid_state(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> bool:
-        """Check if primitive states violate safeguarded variable thresholds.
-        
+        """
+        Check if primitive states violate positivity for density or pressure.
+
         Args:
             WL, WR: Left and right primitive states
-            
+            UL, UR: Left and right conservative states
+
         Returns:
-            True if any safeguarded primitive variable is below threshold
+            bool: True if any primitive variable is below threshold.
         """
-        for idx in self.safeguarded_indices:
-            if WL[idx] <= self.min_var or WR[idx] <= self.min_var:
+        # Check density and pressure (indices 0 and 2)
+        for idx in [0, 2]:
+            if WL[idx] <= self.min_value or WR[idx] <= self.min_value:
                 return True
         for U in [UL, UR]:
             W = self.equation_system.to_primitive(U)
-            for idx in self.safeguarded_indices:
-                if W[idx] <= self.min_var:
+            for idx in [0, 2]:
+                if W[idx] <= self.min_value:
                     return True
         return False
-    
-    def _handle_invalid_state(self, W_L: np.ndarray, W_R: np.ndarray, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Handle invalid states by selecting upwind flux.
-        
-        Args:
-            W_L, W_R: Left and right primitive states
-            U_L, U_R: Left and right conservative states
-            
-        Returns:
-            Upwind flux
+
+    def _handle_invalid_state(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """
-        u_avg = 0.5 * (W_L[self.velocity_index] + W_R[self.velocity_index])
+        Handle invalid states by selecting upwind flux.
+
+        Args:
+            WL, WR: Left and right primitive states
+            UL, UR: Left and right conservative states
+
+        Returns:
+            np.ndarray: Upwind flux.
+        """
+        u_avg = 0.5 * (WL[self.vel_idx] + WR[self.vel_idx])
         return self.equation_system.compute_flux(
-            U_L if u_avg >= 0 else U_R, 
-            W_L if u_avg >= 0 else W_R
+            UL if u_avg >= 0 else UR,
+            WL if u_avg >= 0 else WR
         )
 
     def lax_friedrichs(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute Lax-Friedrichs flux.
+        """
+        Compute Lax-Friedrichs flux.
 
         F = 0.5 * (FL + FR - lambda_max * (UR - UL))
 
@@ -82,13 +96,14 @@ class Flux:
         """
         if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
-        
+
         FL = self.equation_system.compute_flux(UL, WL)
         FR = self.equation_system.compute_flux(UR, WR)
         return 0.5 * (FL + FR - self.lambda_max * (UR - UL))
 
     def rusanov(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute Rusanov (local Lax-Friedrichs) flux.
+        """
+        Compute Rusanov (local Lax-Friedrichs) flux.
 
         F = 0.5 * (FL + FR - lambda_local * (UR - UL))
 
@@ -108,17 +123,15 @@ class Flux:
         FR = self.equation_system.compute_flux(UR, WR)
         # Local maximum wave speed
         lambda_local = max(
-            abs(WL[self.velocity_index]) + self.equation_system.sound_speed(WL),
-            abs(WR[self.velocity_index]) + self.equation_system.sound_speed(WR)
-        ) if self.velocity_index is not None else self.lambda_max
+            abs(WL[self.vel_idx]) + self.equation_system.sound_speed(WL),
+            abs(WR[self.vel_idx]) + self.equation_system.sound_speed(WR)
+        ) if self.vel_idx is not None else self.lambda_max
 
         return 0.5 * (FL + FR - lambda_local * (UR - UL))
 
     def force(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute FORCE flux (average of Lax-Friedrichs and Richtmyer).
-        First-Order Centered
-
-        F = 0.5 * (F_LF + F_Richtmyer)
+        """
+        Compute FORCE flux (average of Lax-Friedrichs and Richtmyer).
 
         Args:
             UL (np.ndarray): Left conservative state.
@@ -135,23 +148,24 @@ class Flux:
         FL = self.equation_system.compute_flux(UL, WL)
         FR = self.equation_system.compute_flux(UR, WR)
 
-        # Local maximum wave speed
-        lambda_local = max(abs(
-            WL[self.velocity_index]) + self.equation_system.sound_speed(WL), 
-            abs(WR[self.velocity_index]) + self.equation_system.sound_speed(WR)
-            ) if self.velocity_index is not None else self.lambda_max
+        lambda_local = max(
+            abs(WL[self.vel_idx]) + self.equation_system.sound_speed(WL),
+            abs(WR[self.vel_idx]) + self.equation_system.sound_speed(WR)
+        ) if self.vel_idx is not None else self.lambda_max
+
         # Lax-Friedrichs component
         F_LF = 0.5 * (FL + FR - lambda_local * (UR - UL))
 
         # Richtmyer component
-        U_mid = 0.5 * (UL + UR) - 0.5 * (FR - FL) / (lambda_local + self.min_var)
+        U_mid = 0.5 * (UL + UR) - 0.5 * (FR - FL) / (lambda_local + self.min_value)
         W_mid = self.equation_system.to_primitive(U_mid)
         F_Richtmyer = self.equation_system.compute_flux(U_mid, W_mid)
 
         return 0.5 * (F_LF + F_Richtmyer)
 
     def hll(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute HLL flux.
+        """
+        Compute HLL flux.
 
         F = (SR * FL - SL * FR + SL * SR * (UR - UL)) / (SR - SL)
 
@@ -169,9 +183,9 @@ class Flux:
 
         cL = self.equation_system.sound_speed(WL)
         cR = self.equation_system.sound_speed(WR)
-        uL = WL[self.equation_system.velocity_index] if self.equation_system.velocity_index is not None else 0.0
-        uR = WR[self.equation_system.velocity_index] if self.equation_system.velocity_index is not None else 0.0
-        
+        uL = WL[self.vel_idx] if self.vel_idx is not None else 0.0
+        uR = WR[self.vel_idx] if self.vel_idx is not None else 0.0
+
         # Wave speed estimates
         SL = min(uL - cL, uR - cR)
         SR = max(uL + cL, uR + cR)
@@ -183,10 +197,11 @@ class Flux:
             return FL
         if SR <= 0:
             return FR
-        return (SR * FL - SL * FR + SL * SR * (UR - UL)) / (SR - SL + self.min_var)
+        return (SR * FL - SL * FR + SL * SR * (UR - UL)) / (SR - SL + self.min_value)
 
     def hllc(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute HLLC flux with intermediate states.
+        """
+        Compute HLLC flux with intermediate states.
 
         Args:
             UL (np.ndarray): Left conservative state.
@@ -199,15 +214,12 @@ class Flux:
         """
         if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
-        
-        # Use equation system's hllc_states_and_flux
-        F = self.equation_system.hllc_numerical_flux(WL, WR, UL, UR)
-        return F
+
+        return self.equation_system.hllc_numerical_flux(WL, WR, UL, UR)
 
     def roe(self, UL: np.ndarray, UR: np.ndarray, WL: np.ndarray, WR: np.ndarray) -> np.ndarray:
-        """Compute Roe flux with entropy fix.
-
-        F = 0.5 * (FL + FR - |A| * (UR - UL))
+        """
+        Compute Roe flux with entropy fix.
 
         Args:
             UL (np.ndarray): Left conservative state.
@@ -220,13 +232,12 @@ class Flux:
         """
         if self._is_invalid_state(WL, WR, UL, UR):
             return self._handle_invalid_state(WL, WR, UL, UR)
-        
-        # Use equation system's roe_states_and_flux
-        F = self.equation_system.roe_numerical_flux(WL, WR, UL, UR)
-        return F
+
+        return self.equation_system.roe_numerical_flux(WL, WR, UL, UR)
 
     def get_flux(self, flux_type: str):
-        """Return the specified flux method.
+        """
+        Return the specified flux method.
 
         Args:
             flux_type (str): Type of flux ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe').
