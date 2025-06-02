@@ -1,4 +1,6 @@
 import numpy as np
+from abc import abstractmethod
+from typing import Optional
 
 
 class EquationSystem:
@@ -11,14 +13,14 @@ class EquationSystem:
     def __init__(self, min_var: float = 1e-10):
         """Initialize equation system with minimum variable threshold."""
         self.min_var = min_var  # Minimum value for numerical stability
-
-        self.velocity_index = None
-        self.monitored_index = None
+        self.velocity_index: Optional[int] = 0
+        self.monitored_index: Optional[int] = None
         self.safeguarded_indices: list[int] = [] # for primitive variables
 
         self.n_vars = 0
         self.variable_names: list[str] = []
     
+    @abstractmethod
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """Convert primitive variables to conservative variables.
 
@@ -30,6 +32,7 @@ class EquationSystem:
         """
         raise NotImplementedError
     
+    @abstractmethod
     def to_primitive(self, U: np.ndarray) -> np.ndarray:
         """Convert conservative variables to primitive variables.
 
@@ -41,6 +44,7 @@ class EquationSystem:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def compute_flux(self, U: np.ndarray, W: np.ndarray) -> np.ndarray:
         """Compute the physical flux for the given state.
 
@@ -53,6 +57,7 @@ class EquationSystem:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def sound_speed(self, W: np.ndarray) -> float:
         """Compute the sound speed for the given primitive state.
 
@@ -71,3 +76,11 @@ class EquationSystem:
             list: List of variable names.
         """
         return self.variable_names
+
+
+    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray):
+        pass
+        
+    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray):
+        pass
+        

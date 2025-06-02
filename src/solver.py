@@ -12,8 +12,8 @@ class Solver:
     Integrates systems using specified flux, reconstruction, and boundary conditions.
     """
     def __init__(self, equation_system: EquationSystem, boundary_condition: BoundaryCondition, 
-                 flux: str = 'hllc', reconstruction: str = 'weno5', limiter: str = 'minmod',
-                 cfl: float = 0.5, use_primitive_reconstruction: bool = False):
+                 cfl: float = 0.5, flux: str = 'hllc', reconstruction: str = 'weno5', 
+                 use_primitive_reconstruction: bool = False, limiter: str = 'minmod'):
         """Initialize the solver.
 
         Args:

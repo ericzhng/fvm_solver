@@ -91,7 +91,7 @@ class IsentropicGas(EquationSystem):
         p = self.k * rho**self.gamma
         return np.array([rho * u, rho * u**2 + p])
 
-    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """Compute HLLC wave speeds, intermediate states, and flux for isentropic gas.
 
         Args:
@@ -143,7 +143,7 @@ class IsentropicGas(EquationSystem):
 
         return F
 
-    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """Compute Roe-averaged state, eigenstructure, wave strengths, and flux for isentropic gas.
 
         Args:

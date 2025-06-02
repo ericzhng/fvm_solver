@@ -115,7 +115,7 @@ class ShallowWater(EquationSystem):
         h = np.maximum(h, self.min_var)
         return np.array([h * u, h * u**2 + 0.5 * self.g * h**2])
 
-    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """Compute HLLC wave speeds, intermediate states, and flux for shallow water equations.
 
         Combines wave speed and intermediate state calculations for HLLC flux.
@@ -169,7 +169,7 @@ class ShallowWater(EquationSystem):
             
         return F
     
-    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """Compute Roe-averaged state, eigenstructure, wave strengths, and flux for shallow water equations.
 
         Combines Roe-related calculations for Roe flux with entropy fix.

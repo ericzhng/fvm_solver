@@ -136,10 +136,10 @@ class Flux:
         FR = self.equation_system.compute_flux(UR, WR)
 
         # Local maximum wave speed
-        lambda_local = max(
-            abs(WL[self.velocity_index]) + self.equation_system.sound_speed(WL),
+        lambda_local = max(abs(
+            WL[self.velocity_index]) + self.equation_system.sound_speed(WL), 
             abs(WR[self.velocity_index]) + self.equation_system.sound_speed(WR)
-        ) if self.velocity_index is not None else self.lambda_max
+            ) if self.velocity_index is not None else self.lambda_max
         # Lax-Friedrichs component
         F_LF = 0.5 * (FL + FR - lambda_local * (UR - UL))
 

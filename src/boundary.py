@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Optional
 from .equation.base_equation import EquationSystem
 
 class BoundaryCondition:
@@ -15,7 +16,7 @@ class BoundaryCondition:
         dx (float): Grid spacing for Neumann conditions.
     """
     def __init__(self, equation_system: EquationSystem, bc_type: str, x: np.ndarray, 
-                 left_values: np.ndarray = None, right_values: np.ndarray = None):
+                 left_values: Optional[np.ndarray] = None, right_values: Optional[np.ndarray] = None):
         """Initialize boundary condition handler.
 
         Args:
@@ -40,6 +41,7 @@ class BoundaryCondition:
                           else np.zeros(equation_system.n_vars))
         self.right_values = (right_values if right_values is not None 
                            else np.zeros(equation_system.n_vars))
+        
         valid_bcs = {'dirichlet', 'neumann', 'periodic', 'reflective'}
         if self.bc_type not in valid_bcs:
             raise ValueError(f"bc_type must be one of {valid_bcs}")
@@ -65,13 +67,14 @@ class BoundaryCondition:
         """
         if n_ghost < 1:
             raise ValueError("n_ghost must be at least 1")
+        
         if U.ndim != 2 or U.shape[0] != self.equation_system.n_vars:
             raise ValueError(f"U must have shape ({self.equation_system.n_vars}, n_cells + 2*n_ghost)")
 
         n_vars, n_cells = U.shape
         n_cells_total = n_cells + 2 * n_ghost
-        U_new = np.zeros([n_vars, n_cells_total])      # Copy to avoid modifying input
-        U_new[:, n_ghost:n_ghost + n_cells] = U      # Copy to avoid modifying input
+        U_new = np.zeros([n_vars, n_cells_total])   # Copy to avoid modifying input
+        U_new[:, n_ghost:n_ghost + n_cells] = U     # Copy to avoid modifying input
 
         if self.bc_type == 'dirichlet':
             # Set ghost cells to fixed primitive values, convert to conservative

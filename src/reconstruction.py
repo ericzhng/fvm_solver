@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Optional
 from .equation.base_equation import EquationSystem
 from .limiter import Limiter
 
@@ -14,7 +15,7 @@ class Reconstruction:
         limiter (Limiter, optional): Slope limiter for MUSCL reconstruction.
     """
 
-    def __init__(self, equation_system: EquationSystem, limiter: str = None, limiter_beta: float = 1.5):
+    def __init__(self, equation_system: EquationSystem, limiter: Optional[str] = None, limiter_beta: float = 1.5):
         """Initialize the reconstruction scheme.
 
         Args:

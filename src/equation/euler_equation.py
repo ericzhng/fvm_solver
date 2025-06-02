@@ -98,7 +98,7 @@ class EulerEquation(EquationSystem):
         E = U[2]  # Total energy
         return np.array([rho * u, rho * u**2 + p, u * (E + p)])
         
-    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """Compute HLLC wave speeds, intermediate states, and flux for Euler equations.
 
         Args:
@@ -159,7 +159,7 @@ class EulerEquation(EquationSystem):
 
         return F
 
-    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """Compute Roe-averaged state, eigenstructure, wave strengths, and flux for Euler equations.
 
         Args:

@@ -26,15 +26,15 @@ def parse_args():
     parser.add_argument('--cfl', type=float, default=0.4, help='CFL number')
     parser.add_argument('--flux', type=str, default='roe', choices=['lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe'], help='Numerical flux method')
     parser.add_argument('--reconstruction', type=str, default='muscl', choices=['piecewise_constant', 'muscl', 'ppm', 'weno5'], help='Reconstruction method')
+    parser.add_argument('--reconstruction_vars', type=str, default='conservative', choices=['primitive', 'conservative'], help='Variable type for reconstruction')
     parser.add_argument('--limiter', type=str, default='superbee', choices=['minmod', 'superbee', 'vanleer', 'mc', 'koren', 'osher', 'sweby', 'umist', 'none'], help='limiter method')
-    parser.add_argument('--bc_type', type=str, default='neumann', choices=['neumann', 'periodic', 'dirichlet', 'reflective'], help='Boundary condition type')
-    parser.add_argument('--reconstruction_vars', type=str, default='conservative', 
-                        choices=['primitive', 'conservative'], help='Variable type for reconstruction')
     return parser.parse_args()
 
 def main():
     """Run the solver with specified parameters and plot results."""
     args = parse_args()
+
+    bc_type = 'neumann'
 
     # Select equation system
     equation_systems = {
@@ -45,32 +45,38 @@ def main():
     equation = equation_systems[args.equation]
 
     # Set up grid
-    x = generate_non_uniform_grid(0, 1, args.nx, stretch_factor=1.2)
+    x = generate_non_uniform_grid(0, 1, args.nx, stretch_factor=1.0)
     
     n_vars = len(equation.get_variable_names())
     W = np.zeros((n_vars, args.nx))
 
     # Set up boundary conditions
-    if args.bc_type == 'neumann':
+    if bc_type == 'neumann':
         left_values = np.zeros(equation.n_vars)
         right_values = np.zeros(equation.n_vars)
-    elif args.bc_type == 'dirichlet':
+    elif bc_type == 'dirichlet':
         left_values = np.array([2.0, 0.0])  # Example Dirichlet values
         right_values = np.array([1.0, 0.0])
     else:
-        left_values = None
-        right_values = None
+        left_values = np.zeros(equation.n_vars)
+        right_values = np.zeros(equation.n_vars)
     
-    bc = BoundaryCondition(equation, args.bc_type.lower(), x, left_values=left_values, right_values=right_values)
+    bc2apply = BoundaryCondition(equation, bc_type.lower(), x, left_values=left_values, right_values=right_values)
+
+    if args.reconstruction_vars == 'primitive':
+        use_primitive = True
+    else:
+        use_primitive = False
 
     # Initialize solver
     solver = Solver(
         equation_system=equation,
-        boundary_condition=bc,
-        reconstruction=args.reconstruction,
-        flux=args.flux,
+        boundary_condition=bc2apply,
         cfl=args.cfl,
-        limiter='minmod' if args.reconstruction == 'muscl' else None
+        flux=args.flux,
+        reconstruction=args.reconstruction,
+        use_primitive_reconstruction=use_primitive,
+        limiter='minmod' if args.reconstruction == 'muscl' else 'none'
     )
 
     totalT = args.T
