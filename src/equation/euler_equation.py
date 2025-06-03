@@ -161,12 +161,19 @@ class EulerEquation(EquationSystem):
         if any(arr.shape != (self.num_vars,) for arr in [WL, WR, UL, UR]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
 
+        # Extract left and right states
         rhoL, uL, pL = WL
         rhoR, uR, pR = WR
         rhoL = np.maximum(rhoL, self.min_value)
         rhoR = np.maximum(rhoR, self.min_value)
-        hL = (UL[2] + pL) / rhoL
-        hR = (UR[2] + pR) / rhoR
+        pL = np.maximum(pL, self.min_value)
+        pR = np.maximum(pR, self.min_value)
+
+        # Compute enthalpy
+        EL = UL[2]
+        ER = UR[2]
+        hL = (EL + pL) / rhoL
+        hR = (ER + pR) / rhoR
 
         # Roe averages
         sqrt_rhoL = np.sqrt(rhoL)
@@ -174,41 +181,53 @@ class EulerEquation(EquationSystem):
         denom = sqrt_rhoL + sqrt_rhoR + self.min_value
         u_roe = (uL * sqrt_rhoL + uR * sqrt_rhoR) / denom
         h_roe = (hL * sqrt_rhoL + hR * sqrt_rhoR) / denom
-        c_roe = np.sqrt((self.gamma - 1) * (h_roe - 0.5 * u_roe**2))
+        c2_roe = (self.gamma - 1) * (h_roe - 0.5 * u_roe**2)
+        c2_roe = np.maximum(c2_roe, self.min_value)
+        c_roe = np.sqrt(c2_roe)
 
-        # Eigenvalues and eigenvectors
-        eigenvalues = np.array([u_roe - c_roe, u_roe, u_roe + c_roe])
-        eigenvectors = [
-            np.array([1, u_roe - c_roe, h_roe - u_roe * c_roe]),
-            np.array([1, u_roe, 0.5 * u_roe**2]),
-            np.array([1, u_roe + c_roe, h_roe + u_roe * c_roe])
-        ]
+        # Eigenvalues
+        lambda_1 = u_roe - c_roe
+        lambda_2 = u_roe
+        lambda_3 = u_roe + c_roe
+        lambdas = np.array([lambda_1, lambda_2, lambda_3])
+
+        # Improved entropy fix (Harten-Hyman)
         delta = 0.1 * c_roe
+        abs_lambdas = np.abs(lambdas)
+        for i in range(3):
+            if abs_lambdas[i] < delta:
+                abs_lambdas[i] = 0.5 * (lambdas[i]**2 / delta + delta)
 
-        # Wave strengths
+        # Differences
         delta_U = UR - UL
-        delta_rho = delta_U[0]
-        delta_rho_u = delta_U[1]
-        delta_rho_E = delta_U[2]
-        denom_c2 = c_roe**2 + self.min_value * 1e2
-        alpha_2 = ((self.gamma - 1) / denom_c2) * (
-            delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
-        )
-        denom_2c = 2 * c_roe + self.min_value * 1e2
-        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / denom_2c
-        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / denom_2c
-        wave_strengths = np.array([alpha_1, alpha_2, alpha_3])
 
-        # Fluxes
+        # Compute wave strengths (alpha) using primitive variable jumps
+        drho = rhoR - rhoL
+        du = uR - uL
+        dp = pR - pL
+
+        # Avoid division by zero in c2_roe
+        c2_roe_safe = c2_roe if c2_roe > self.min_value else self.min_value
+
+        # Compute alpha2 (contact wave)
+        alpha2 = (dp - c_roe * drho) / c2_roe_safe
+        # Compute alpha1 and alpha3 (acoustic waves)
+        alpha1 = 0.5 * (drho - alpha2)
+        alpha3 = 0.5 * (drho + alpha2)
+
+        # Roe eigenvectors
+        r1 = np.array([1, u_roe - c_roe, h_roe - u_roe * c_roe])
+        r2 = np.array([1, u_roe, 0.5 * u_roe**2])
+        r3 = np.array([1, u_roe + c_roe, h_roe + u_roe * c_roe])
+
+        # |A| * delta_U
+        absA_deltaU = abs_lambdas[0] * alpha1 * r1 + abs_lambdas[1] * alpha2 * r2 + abs_lambdas[2] * alpha3 * r3
+
+        # Physical fluxes
         FL = self.compute_flux(UL, WL)
         FR = self.compute_flux(UR, WR)
 
-        abs_A = np.zeros_like(FL)
-        for i in range(len(eigenvalues)):
-            abs_lambda = abs(eigenvalues[i])
-            if abs_lambda < delta:
-                abs_lambda = (eigenvalues[i]**2 + delta**2) / (2 * delta)
-            abs_A += abs_lambda * wave_strengths[i] * eigenvectors[i]
-        F = 0.5 * (FL + FR - abs_A)
+        # Roe flux
+        F = 0.5 * (FL + FR) - 0.5 * absA_deltaU
 
         return F

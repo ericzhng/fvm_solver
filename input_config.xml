@@ -46,7 +46,7 @@
     <solver_settings>
         <T>0.1</T>
         <cfl>0.4</cfl>
-        <flux>hllc</flux>
+        <flux>roe</flux>
         <reconstruction>muscl</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>
         <limiter>minmod</limiter>

@@ -38,13 +38,13 @@ class Reconstruction:
         if U.shape[1] < 2 * n_ghost + 1:
             raise ValueError("U must have at least 2*n_ghost + 1 cells")
 
-    def piecewise_constant(self, U: np.ndarray, x: np.ndarray, n_ghost: int = 2) -> tuple:
+    def piecewise_constant(self, U: np.ndarray, dx: np.ndarray, n_ghost: int = 2) -> tuple:
         """
         Piecewise constant reconstruction.
 
         Args:
             U (np.ndarray): Conservative variables, shape (num_vars, n_cells + 2*n_ghost, ...).
-            x (np.ndarray): Spatial grid or meshgrid.
+            dx (np.ndarray): Spatial grid distance array.
             n_ghost (int): Number of ghost cells per side.
 
         Returns:
@@ -54,22 +54,19 @@ class Reconstruction:
             raise ValueError("n_ghost must be at least 1")
         self._validate_input(U, n_ghost)
 
-        if self.reconstruct_in_primitive:
-            W = self.equation_system.to_primitive_batch(U)
-            UL = self.equation_system.to_conservative_batch(W[:, :-1])
-            UR = self.equation_system.to_conservative_batch(W[:, 1:])
-        else:
-            UL = U[:, :-1]
-            UR = U[:, 1:]
+        # assign left and right states: at interface i, left state is U[i], right state is U[i+1]
+        UL = U[:, :-1]
+        UR = U[:, 1:]
+
         return UL, UR
 
-    def muscl(self, U: np.ndarray, x: np.ndarray, n_ghost: int = 2) -> tuple:
+    def muscl(self, U: np.ndarray, dx: np.ndarray, n_ghost: int = 2) -> tuple:
         """
         MUSCL reconstruction with slope limiting.
 
         Args:
             U (np.ndarray): Conservative variables, shape (num_vars, n_cells + 2*n_ghost, ...).
-            x (np.ndarray): Spatial grid or meshgrid.
+            dx (np.ndarray): Spatial grid distance array.
             n_ghost (int): Number of ghost cells per side.
 
         Returns:
@@ -79,8 +76,7 @@ class Reconstruction:
             raise ValueError("n_ghost must be at least 1")
         self._validate_input(U, n_ghost)
 
-        if x.ndim == 1:
-            dx = np.diff(x)
+        if dx.ndim == 1:
             n_cells_total = U.shape[1]
             UL = np.zeros((self.equation_system.num_vars, n_cells_total - 1))
             UR = np.zeros((self.equation_system.num_vars, n_cells_total - 1))
@@ -105,8 +101,9 @@ class Reconstruction:
                 return UL, UR
             else:
                 for j in range(self.equation_system.num_vars):
-                    left_slopes = (U[j, 1:-1] - U[j, :-2]) / dx[:-1]
-                    right_slopes = (U[j, 2:] - U[j, 1:-1]) / dx[1:]
+                    dist = (dx[:-1] + dx[1:]) / 2
+                    left_slopes = (U[j, 1:-1] - U[j, :-2]) / dist[:-1]
+                    right_slopes = (U[j, 2:] - U[j, 1:-1]) / dist[1:]
                     slopes = self.limiter.limit(left_slopes, right_slopes) if self.limiter else np.zeros_like(left_slopes)
                     slopes = np.insert(slopes, 0, 0)
                     slopes = np.append(slopes, 0)

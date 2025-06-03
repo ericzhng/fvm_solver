@@ -85,30 +85,25 @@ class Solver:
             raise ValueError(f"U must have shape ({self.equation_system.num_vars}, n_cells, ...)")
 
         W = self.equation_system.to_primitive_batch(U)
-        max_value = 0.0
+        min_value = float('inf')
         if U.ndim == 2:  # 1D
             n_cells = U.shape[1]
             for i in range(n_cells):
                 dx = grid[i+1] - grid[i]
-                value = dx / (
-                    abs(W[self.equation_system.vel_idx, i]) + 
-                    self.equation_system.sound_speed(W[:, i]) + self.equation_system.min_value
-                )
-                max_value = max(max_value, value)
+                value = dx / max(abs(W[self.equation_system.vel_idx, i]) + self.equation_system.sound_speed(W[:, i]),
+                                self.equation_system.min_value)
+                min_value = min(min_value, value)
         else:  # 2D/3D
             dx = grid[0][1] - grid[0][0]
             for idx in np.ndindex(U.shape[1:]):
-                value = dx / (
-                    abs(W[self.equation_system.vel_idx, *idx]) + 
-                    self.equation_system.sound_speed(W[:, *idx]) + self.equation_system.min_value
-                )
-                max_value = max(max_value, value)
-
+                value = dx / max(abs(W[self.equation_system.vel_idx, idx]) + self.equation_system.sound_speed(W[:, idx]),
+                                self.equation_system.min_value)
+                min_value = min(min_value, value)
         adaptive_cfl = min(
             self.cfl,
             0.4 if self.reconstruction_method.__name__ == 'weno5' else 0.2 if self.reconstruction_method.__name__ == 'ppm' else self.cfl
         )
-        return adaptive_cfl * max_value
+        return adaptive_cfl * min_value
 
     def save_solution(self, U: np.ndarray, t: float, step: int):
         """Save solution to ASCII file for each time step.
@@ -130,7 +125,7 @@ class Solver:
             else:  # 2D/3D
                 f.write("# Structured grid output\n")
                 for idx in np.ndindex(U.shape[1:]):
-                    f.write(f"{' '.join(str(i) for i in idx)} " + " ".join(f"{w:.6e}" for w in W[:, *idx]) + "\n")
+                    f.write(f"{' '.join(str(i) for i in idx)} " + " ".join(f"{w:.6e}" for w in W[:, idx]) + "\n")
             f.write("\n")
 
     def solve(self, U0: np.ndarray, T: float, n_ghost: int = 2) -> tuple:
@@ -183,8 +178,6 @@ class Solver:
         prev_norm = float('inf')
 
         while t < T and n < self.max_iterations:
-            print(f"Step {n:04d} - Time {t:.3f}/{T:.3f} ({t/T*100:.1f}%)")
-            
             # Apply boundary conditions, expanding grid
             U_ext = self.bc.apply_bcs(U, n_ghost)
 
@@ -197,12 +190,13 @@ class Solver:
             # Compute fluxes
             if U.ndim == 2:  # 1D
                 F = np.zeros_like(UL)
+                WL = self.equation_system.to_primitive_batch(UL)
+                WR = self.equation_system.to_primitive_batch(UR)
                 for i in range(UL.shape[1]):
-                    WL = self.equation_system.to_primitive(UL[:, i])
-                    WR = self.equation_system.to_primitive(UR[:, i])
-                    F[:, i] = self.flux(UL[:, i], UR[:, i], WL, WR)
+                    F[:, i] = self.flux(UL[:, i], UR[:, i], WL[:, i], WR[:, i])
+                
                 dF = F[:, 1:] - F[:, :-1]
-                U_new = U - (dt / grid_dx) * dF[:, n_ghost-1 : n_ghost-1 + U.shape[1]]
+                U_new = U - (dt / grid_dx) * dF[:, n_ghost-1 : n_cells + n_ghost - 1]
 
             else:  # 2D/3D
                 U_new = np.zeros_like(U)
@@ -211,9 +205,6 @@ class Solver:
             # Check convergence
             normU = np.linalg.norm(U)
             residual = np.linalg.norm(U_new - U) / normU if normU > 0 else np.linalg.norm(U_new)
-            if residual > prev_norm and n > 10:
-                raise RuntimeError(f"Solution diverged at step {n}, residual {residual:.6e}")
-            prev_norm = residual
 
             U = U_new
             self.save_solution(U, t, n)
@@ -222,13 +213,17 @@ class Solver:
             t += dt
             n += 1
 
+            # Print progress
+            percent = (t / T * 100) if T != 0 else 0.0
+            print(f"\rStep {n:03d} | Time: {t:.4f} / {T:.3f} ({percent:5.1f}%) | Δt = {dt:.4f} s | Residual {residual * 100:5.2f} %", end='\n', flush=True)
+
             # Check convergence tolerance
             if residual < self.convergence_tol:
                 print(f"Converged at step {n}, residual {residual:.6e}")
                 break
 
-        if n >= self.max_iterations:
-            raise RuntimeError("Maximum iterations reached without convergence")
+            if n >= self.max_iterations:
+                raise RuntimeError("Maximum iterations reached without convergence")
 
         print(f"Simulation completed: {n} steps, final time {t:.6f}")
         return np.array(history), t
