@@ -104,3 +104,34 @@ def parse_xml_config(filename):
     config['output_filename'] = get_text(root.find('output/filename'), default='output.csv')
 
     return config
+
+def read_solution(filename):
+    # Reads the solution.dat file and returns a list of (time, x, W) tuples
+    data = []
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith('# Step'):
+            # Parse time
+            time_line = line
+            time = float(time_line.split('Time')[1].strip())
+            # Skip header
+            i += 2
+            x_list, w_list = [], []
+            while i < len(lines) and not lines[i].startswith('#'):
+                vals = lines[i].split()
+                if len(vals) == 4:
+                    x_list.append(float(vals[0]))
+                    w_list.append([float(vals[1]), float(vals[2]), float(vals[3])])
+                elif len(vals) == 3:
+                    x_list.append(float(vals[0]))
+                    w_list.append([float(vals[1]), float(vals[2])])
+                i += 1
+            x = np.array(x_list)
+            W = np.array(w_list).T  # shape: (3, N)
+            data.append((time, x, W))
+        else:
+            i += 1
+    return data

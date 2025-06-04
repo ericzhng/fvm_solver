@@ -1,34 +1,8 @@
 # read sedov.dat and solution.dat files
 import numpy as np
 import matplotlib.pyplot as plt
+from src.utils import read_solution
 
-def read_solution(filename):
-    """Reads the solution.dat file and returns a list of (time, x, W) tuples."""
-    data = []
-    with open(filename, 'r') as f:
-        lines = f.readlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if line.startswith('# Step'):
-            # Parse time
-            time_line = line
-            time = float(time_line.split('Time')[1].strip())
-            # Skip header
-            i += 2
-            x_list, w_list = [], []
-            while i < len(lines) and not lines[i].startswith('#'):
-                vals = lines[i].split()
-                if len(vals) == 4:
-                    x_list.append(float(vals[0]))
-                    w_list.append([float(vals[1]), float(vals[2]), float(vals[3])])
-                i += 1
-            x = np.array(x_list)
-            W = np.array(w_list).T  # shape: (3, N)
-            data.append((time, x, W))
-        else:
-            i += 1
-    return data
 
 def sod_analytic(x, t, gamma=1.4, 
                 left_state=(1.0, 0.0, 1.0), 
