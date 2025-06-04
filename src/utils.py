@@ -57,6 +57,7 @@ def parse_xml_config(filename):
     config['stretch_factor'] = get_text(root.find('mesh/stretch_factor'), default=1.0, cast=float)
     config['equation'] = get_text(root.find('equation/type'), default='euler')
     config['gamma'] = get_text(root.find('equation/gamma'), default=1.4, cast=float) if config['equation'] == 'euler' else 1.4
+    config['k'] = get_text(root.find('equation/k'), default=1.0, cast=float) if config['equation'] == 'isentropic' else 1.0
     config['bc_type'] = get_text(root.find('boundary_conditions/type'), default='dirichlet')
 
     left_values_elem = root.find('boundary_conditions/left_values')
@@ -68,11 +69,27 @@ def parse_xml_config(filename):
     ic_euler_left_elem = root.find('initial_conditions/euler/left')
     ic_euler_right_elem = root.find('initial_conditions/euler/right')
     ic_euler_split_elem = root.find('initial_conditions/euler/split')
+    ic_isentropic_left_elem = root.find('initial_conditions/isentropic/left')
+    ic_isentropic_right_elem = root.find('initial_conditions/isentropic/right')
+    ic_isentropic_split_elem = root.find('initial_conditions/isentropic/split')
+    ic_swe_left_elem = root.find('initial_conditions/shallow_water/left')
+    ic_swe_right_elem = root.find('initial_conditions/shallow_water/right')
+    ic_swe_split_elem = root.find('initial_conditions/shallow_water/split')
     config['initial_conditions'] = {
         'euler': {
             'left': np.array([float(v.text) for v in ic_euler_left_elem if v.text is not None] if ic_euler_left_elem is not None else []),
             'right': np.array([float(v.text) for v in ic_euler_right_elem if v.text is not None] if ic_euler_right_elem is not None else []),
             'split': float(ic_euler_split_elem.text) if ic_euler_split_elem is not None and ic_euler_split_elem.text is not None else 0.5
+        },
+        'isentropic': {
+            'left': np.array([float(v.text) for v in ic_isentropic_left_elem if v.text is not None] if ic_isentropic_left_elem is not None else []),
+            'right': np.array([float(v.text) for v in ic_isentropic_right_elem if v.text is not None] if ic_isentropic_right_elem is not None else []),
+            'split': float(ic_isentropic_split_elem.text) if ic_isentropic_split_elem is not None and ic_isentropic_split_elem.text is not None else 0.5
+        },
+        'shallow_water': {
+            'left': np.array([float(v.text) for v in ic_swe_left_elem if v.text is not None] if ic_swe_left_elem is not None else []),
+            'right': np.array([float(v.text) for v in ic_swe_right_elem if v.text is not None] if ic_swe_right_elem is not None else []),
+            'split': float(ic_swe_split_elem.text) if ic_swe_split_elem is not None and ic_swe_split_elem.text is not None else 0.5
         }
     }
     config['T'] = get_text(root.find('solver_settings/T'), default=1.0, cast=float)

@@ -30,7 +30,8 @@ class EquationSystem:
         self.monitor_idx: Optional[int] = None
         self.num_vars = 0
         self.var_names: list[str] = []
-
+        self.safety_guard_var_idx = []
+        
     @abstractmethod
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """

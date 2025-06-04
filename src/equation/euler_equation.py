@@ -20,6 +20,7 @@ class EulerEquation(EquationSystem):
         self.monitor_idx = 0
         self.var_names = ['density', 'velocity', 'pressure']
         self.num_vars = 3
+        self.safety_guard_var_idx = [0, 2]  # density and pressure
 
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """Convert primitive variables to conservative variables.
@@ -147,7 +148,7 @@ class EulerEquation(EquationSystem):
         return F
 
     def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        """Compute Roe-averaged state, eigenstructure, wave strengths, and flux for Euler equations.
+        """Compute the Roe numerical flux for the shallow water equations, with entropy fix.
 
         Args:
             WL (np.ndarray): Left primitive state [density, velocity, pressure]
@@ -227,11 +228,10 @@ class EulerEquation(EquationSystem):
         # Roe flux
         F = 0.5 * (FL + FR) - 0.5 * dissipative_term
 
-        # Positivity check: fallback to Rusanov if Roe produces nonphysical states
-        # Compute the state after a forward Euler step (approximate)
-        U_test = 0.5 * (UL + UR) - 0.5 * (FR - FL)
-        W_test = self.to_primitive(U_test)
-        if np.any(W_test[:1] <= self.min_value) or np.any(W_test[2:] <= self.min_value):
+        # Pressure jump detector
+        pL, pR = WL[2], WR[2]
+        pressure_jump = max(pL, pR) / (min(pL, pR) + self.min_value)
+        if pressure_jump > 2.0:
             # Fallback to Rusanov flux for this interface
             FL_rusanov = FL
             FR_rusanov = FR
@@ -241,4 +241,9 @@ class EulerEquation(EquationSystem):
             )
             F = 0.5 * (FL_rusanov + FR_rusanov - lambda_local * (UR - UL))
         
+        # Optionally, add a small artificial viscosity term
+        shock_indicator = abs(pR - pL) / (pR + pL + self.min_value)
+        if shock_indicator > 0.2:  # tune threshold as needed
+            F += 0.2 * (UR - UL)  # add small viscosity
+            
         return F

@@ -22,6 +22,9 @@ def read_solution(filename):
                 if len(vals) == 4:
                     x_list.append(float(vals[0]))
                     w_list.append([float(vals[1]), float(vals[2]), float(vals[3])])
+                elif len(vals) == 3:
+                    x_list.append(float(vals[0]))
+                    w_list.append([float(vals[1]), float(vals[2])])
                 i += 1
             x = np.array(x_list)
             W = np.array(w_list).T  # shape: (3, N)

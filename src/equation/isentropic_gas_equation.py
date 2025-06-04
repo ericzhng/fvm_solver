@@ -15,15 +15,15 @@ class IsentropicGas(EquationSystem):
             gamma (float): Ratio of specific heats (default: 1.4).
             k (float): Gas constant (default: 1.0).
         """
-        super().__init__()
+        super().__init__(min_value=1e-10)
         self.gamma = gamma
         self.k = k
-        self.min_var = 1e-10  # Minimum density
-        self.velocity_index = 1
+        self.vel_idx = 1
         self.monitored_index = 0
         self.safeguarded_indices : list[int] = [0]
-        self.variable_names = ['density', 'velocity']
-        self.n_vars = 2
+        self.var_names = ['density', 'velocity']
+        self.num_vars = 2
+        self.safety_guard_var_idx = [0]  # only density
 
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """Convert primitive variables to conservative variables.
@@ -37,10 +37,10 @@ class IsentropicGas(EquationSystem):
         Returns:
             np.ndarray: Conservative variables [density, momentum].
         """
-        if W.shape != (self.n_vars,):
-            raise ValueError(f"W must have shape ({self.n_vars},)")
+        if W.shape != (self.num_vars,):
+            raise ValueError(f"W must have shape ({self.num_vars},)")
         rho, u = W
-        rho = np.maximum(rho, self.min_var)
+        rho = np.maximum(rho, self.min_value)
         return np.array([rho, rho * u])
 
     def to_primitive(self, U: np.ndarray) -> np.ndarray:
@@ -52,10 +52,10 @@ class IsentropicGas(EquationSystem):
         Returns:
             np.ndarray: Primitive variables [density, velocity].
         """
-        if U.shape != (self.n_vars,):
-            raise ValueError(f"U must have shape ({self.n_vars},)")
+        if U.shape != (self.num_vars,):
+            raise ValueError(f"U must have shape ({self.num_vars},)")
         rho, m = U
-        rho = np.maximum(rho, self.min_var)
+        rho = np.maximum(rho, self.min_value)
         return np.array([rho, m / rho])
 
     def sound_speed(self, W: np.ndarray) -> float:
@@ -67,9 +67,9 @@ class IsentropicGas(EquationSystem):
         Returns:
             float: Sound speed sqrt(gamma * k * rho^(gamma-1)).
         """
-        if W.shape != (self.n_vars,):
-            raise ValueError(f"W must have shape ({self.n_vars},)")
-        rho = np.maximum(W[0], self.min_var)
+        if W.shape != (self.num_vars,):
+            raise ValueError(f"W must have shape ({self.num_vars},)")
+        rho = np.maximum(W[0], self.min_value)
         return np.sqrt(self.gamma * self.k * rho**(self.gamma - 1))
 
     def compute_flux(self, U: np.ndarray, W: np.ndarray) -> np.ndarray:
@@ -84,10 +84,10 @@ class IsentropicGas(EquationSystem):
         Returns:
             np.ndarray: Flux vector.
         """
-        if U.shape != (self.n_vars,) or W.shape != (self.n_vars,):
-            raise ValueError(f"U and W must have shape ({self.n_vars},)")
+        if U.shape != (self.num_vars,) or W.shape != (self.num_vars,):
+            raise ValueError(f"U and W must have shape ({self.num_vars},)")
         rho, u = W
-        rho = np.maximum(rho, self.min_var)
+        rho = np.maximum(rho, self.min_value)
         p = self.k * rho**self.gamma
         return np.array([rho * u, rho * u**2 + p])
 
@@ -101,16 +101,16 @@ class IsentropicGas(EquationSystem):
             UR (np.ndarray): Right conservative state [density, momentum].
 
         Returns:
-            F: HLLC numerical flux.
+            np.ndarray: HLLC numerical flux
         """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
+        if any(arr.shape != (self.num_vars,) for arr in [WL, WR, UL, UR]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
 
         # Extract variables
         rhoL, uL = WL
         rhoR, uR = WR
-        rhoL = np.maximum(rhoL, self.min_var)
-        rhoR = np.maximum(rhoR, self.min_var)
+        rhoL = np.maximum(rhoL, self.min_value)
+        rhoR = np.maximum(rhoR, self.min_value)
 
         # Compute wave speeds
         cL = self.sound_speed(WL)
@@ -120,12 +120,12 @@ class IsentropicGas(EquationSystem):
         pL = self.k * rhoL**self.gamma
         pR = self.k * rhoR**self.gamma
         denom = rhoL * (S_L - uL) - rhoR * (S_R - uR)
-        S_star = 0.5 * (uL + uR) if abs(denom) < self.min_var else (
+        S_star = 0.5 * (uL + uR) if abs(denom) < self.min_value else (
             pR - pL + rhoL * uL * (S_L - uL) - rhoR * uR * (S_R - uR)) / denom
 
         # Compute intermediate states
-        rho_star_L = max(rhoL * (S_L - uL) / (S_L - S_star + self.min_var), self.min_var)
-        rho_star_R = max(rhoR * (S_R - uR) / (S_R - S_star + self.min_var), self.min_var)
+        rho_star_L = max(rhoL * (S_L - uL) / (S_L - S_star + self.min_value), self.min_value)
+        rho_star_R = max(rhoR * (S_R - uR) / (S_R - S_star + self.min_value), self.min_value)
         UL_star = np.array([rho_star_L, rho_star_L * S_star])
         UR_star = np.array([rho_star_R, rho_star_R * S_star])
 
@@ -153,22 +153,15 @@ class IsentropicGas(EquationSystem):
             UR (np.ndarray): Right conservative state [density, momentum].
 
         Returns:
-            tuple: (rho_roe, u_roe, c_roe, eigenvalues, eigenvectors, delta, wave_strengths, F), where:
-                - rho_roe, u_roe: Roe-averaged density and velocity.
-                - c_roe: Roe-averaged sound speed.
-                - eigenvalues: Roe eigenvalues.
-                - eigenvectors: Roe eigenvectors.
-                - delta: Entropy fix parameter.
-                - wave_strengths: Wave strength coefficients.
-                - F: Roe numerical flux.
+            np.ndarray: Roe numerical flux
         """
-        if any(arr.shape != (self.n_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.n_vars},)")
+        if any(arr.shape != (self.num_vars,) for arr in [WL, WR, UL, UR]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
         
         rhoL, uL = WL
         rhoR, uR = WR
         rho_roe = np.sqrt(rhoL * rhoR)
-        u_roe = (uL * np.sqrt(rhoL) + uR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_var)
+        u_roe = (uL * np.sqrt(rhoL) + uR * np.sqrt(rhoR)) / (np.sqrt(rhoL) + np.sqrt(rhoR) + self.min_value)
         c_roe = self.sound_speed(np.array([rho_roe, u_roe]))
 
         eigenvalues = np.array([u_roe - c_roe, u_roe + c_roe])
@@ -180,7 +173,7 @@ class IsentropicGas(EquationSystem):
 
         # Eigenstructure and wave strengths
         delta_U = UR - UL
-        alpha_2 = (delta_U[0] * (u_roe - c_roe) - delta_U[1]) / (-2 * c_roe + self.min_var)
+        alpha_2 = (delta_U[0] * (u_roe - c_roe) - delta_U[1]) / (-2 * c_roe + self.min_value)
         alpha_1 = delta_U[0] - alpha_2
         wave_strengths = np.array([alpha_1, alpha_2])
 

@@ -12,41 +12,37 @@
         <stretch_factor>1.0</stretch_factor>
     </mesh>
     <equation>
-        <type>euler</type>
-        <gamma>1.4</gamma>
+        <type>shallow_water</type>
+        <g>9.81</g>
     </equation>
     <boundary_conditions>
         <type>neumann</type>
         <left_values>
-            <density>0.0</density>
+            <height>0.0</height>
             <velocity>0.0</velocity>
-            <pressure>0.0</pressure>
         </left_values>
         <right_values>
-            <density>0.0</density>
+            <height>0.0</height>
             <velocity>0.0</velocity>
-            <pressure>0.0</pressure>
         </right_values>
     </boundary_conditions>
     <initial_conditions>
-        <euler>
+        <shallow_water>
             <left>
-                <density>1.0</density>
+                <height>1.0</height>
                 <velocity>0.0</velocity>
-                <pressure>1.0</pressure>
             </left>
             <right>
-                <density>0.125</density>
+                <height>0.1</height>
                 <velocity>0.0</velocity>
-                <pressure>0.1</pressure>
             </right>
             <split>0.5</split>
-        </euler>
+        </shallow_water>
     </initial_conditions>
     <solver_settings>
         <T>0.1</T>
-        <cfl>0.1</cfl>
-        <flux>roe</flux>
+        <cfl>0.3</cfl>
+        <flux>hll</flux>
         <reconstruction>muscl</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>
         <limiter>minmod</limiter>

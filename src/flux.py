@@ -42,22 +42,23 @@ class Flux:
 
     def _is_invalid_state(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> bool:
         """
-        Check if primitive states violate positivity for density or pressure.
+        Check if primitive states violate positivity for safety-guarded variables.
 
         Args:
             WL, WR: Left and right primitive states
             UL, UR: Left and right conservative states
 
         Returns:
-            bool: True if any primitive variable is below threshold.
+            bool: True if any safety-guarded primitive variable is below threshold.
         """
-        # Check density and pressure (indices 0 and 2)
-        for idx in [0, 2]:
+        # Use equation_system.safety_guard_var_idx for safety checks
+        idxs = getattr(self.equation_system, "safety_guard_var_idx", [0])
+        for idx in idxs:
             if WL[idx] <= self.min_value or WR[idx] <= self.min_value:
                 return True
         for U in [UL, UR]:
             W = self.equation_system.to_primitive(U)
-            for idx in [0, 2]:
+            for idx in idxs:
                 if W[idx] <= self.min_value:
                     return True
         return False
