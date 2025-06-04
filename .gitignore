@@ -3,6 +3,7 @@ src/__pycache__/*
 .pytest_cache
 
 **/trunk
+solution*.dat
 
 **/*.py[cod]
 *.egg-info
