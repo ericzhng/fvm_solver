@@ -175,7 +175,7 @@ class Solver:
         history = [U.copy()]
         t = 0.0
         n = 0
-        prev_norm = float('inf')
+        prev_residual = float('inf')
 
         while t < T and n < self.max_iterations:
             # Apply boundary conditions, expanding grid
@@ -217,6 +217,11 @@ class Solver:
             percent = (t / T * 100) if T != 0 else 0.0
             print(f"\rStep {n:03d} | Time: {t:.4f} / {T:.3f} ({percent:5.1f}%) | Δt = {dt:.4f} s | Residual {residual * 100:5.2f} %", end='\n', flush=True)
 
+            # check if residual is suddenly increasing by 5 times
+            if n > 0 and residual > 4 * prev_residual:
+                raise RuntimeError(f"Possible divergence; residual increased by more than 4 times: {residual / prev_residual:.2g}")
+            prev_residual = residual
+            
             # Check convergence tolerance
             if residual < self.convergence_tol:
                 print(f"Converged at step {n}, residual {residual:.6e}")

@@ -45,7 +45,7 @@
     </initial_conditions>
     <solver_settings>
         <T>0.1</T>
-        <cfl>0.4</cfl>
+        <cfl>0.1</cfl>
         <flux>roe</flux>
         <reconstruction>muscl</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>

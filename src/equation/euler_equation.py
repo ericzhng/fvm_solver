@@ -196,24 +196,21 @@ class EulerEquation(EquationSystem):
         abs_lambdas = np.abs(lambdas)
         for i in range(3):
             if abs_lambdas[i] < delta:
-                abs_lambdas[i] = 0.5 * (lambdas[i]**2 / delta + delta)
-
+                abs_lambdas[i] = 0.5 * (lambdas[i] + np.sqrt(lambdas[i]**2 + delta**2))
+                # abs_lambdas[i] = 0.5 * (lambdas[i]**2 / delta + delta)
+                
         # Differences
         delta_U = UR - UL
 
-        # Compute wave strengths (alpha) using primitive variable jumps
-        drho = rhoR - rhoL
-        du = uR - uL
-        dp = pR - pL
-
-        # Avoid division by zero in c2_roe
-        c2_roe_safe = c2_roe if c2_roe > self.min_value else self.min_value
-
-        # Compute alpha2 (contact wave)
-        alpha2 = (dp - c_roe * drho) / c2_roe_safe
-        # Compute alpha1 and alpha3 (acoustic waves)
-        alpha1 = 0.5 * (drho - alpha2)
-        alpha3 = 0.5 * (drho + alpha2)
+        # Compute wave strengths (alpha) using conservative variable jumps
+        delta_rho = delta_U[0]
+        delta_rho_u = delta_U[1]
+        delta_rho_E = delta_U[2]
+        alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_value)) * (
+            delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
+        )
+        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_value)
+        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_value)
 
         # Roe eigenvectors
         r1 = np.array([1, u_roe - c_roe, h_roe - u_roe * c_roe])
@@ -221,13 +218,27 @@ class EulerEquation(EquationSystem):
         r3 = np.array([1, u_roe + c_roe, h_roe + u_roe * c_roe])
 
         # |A| * delta_U
-        absA_deltaU = abs_lambdas[0] * alpha1 * r1 + abs_lambdas[1] * alpha2 * r2 + abs_lambdas[2] * alpha3 * r3
+        dissipative_term = abs_lambdas[0] * alpha_1 * r1 + abs_lambdas[1] * alpha_2 * r2 + abs_lambdas[2] * alpha_3 * r3
 
         # Physical fluxes
         FL = self.compute_flux(UL, WL)
         FR = self.compute_flux(UR, WR)
 
         # Roe flux
-        F = 0.5 * (FL + FR) - 0.5 * absA_deltaU
+        F = 0.5 * (FL + FR) - 0.5 * dissipative_term
 
+        # Positivity check: fallback to Rusanov if Roe produces nonphysical states
+        # Compute the state after a forward Euler step (approximate)
+        U_test = 0.5 * (UL + UR) - 0.5 * (FR - FL)
+        W_test = self.to_primitive(U_test)
+        if np.any(W_test[:1] <= self.min_value) or np.any(W_test[2:] <= self.min_value):
+            # Fallback to Rusanov flux for this interface
+            FL_rusanov = FL
+            FR_rusanov = FR
+            lambda_local = max(
+                abs(WL[self.vel_idx]) + self.sound_speed(WL),
+                abs(WR[self.vel_idx]) + self.sound_speed(WR)
+            )
+            F = 0.5 * (FL_rusanov + FR_rusanov - lambda_local * (UR - UL))
+        
         return F
