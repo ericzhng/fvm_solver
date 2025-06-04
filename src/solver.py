@@ -56,7 +56,7 @@ class Solver:
         self.reconstruction_method = {
             'piecewise_constant': self.reconstruction.piecewise_constant,
             'muscl': self.reconstruction.muscl,
-            # 'ppm': self.reconstruction.ppm,
+            'ppm': self.reconstruction.ppm,
             # 'weno5': self.reconstruction.weno5
         }[reconstruction.lower()]
         self.cfl = cfl

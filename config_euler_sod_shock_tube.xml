@@ -45,9 +45,9 @@
     </initial_conditions>
     <solver_settings>
         <T>0.1</T>
-        <cfl>0.4</cfl>
+        <cfl>0.2</cfl>
         <flux>hllc</flux>
-        <reconstruction>muscl</reconstruction>
+        <reconstruction>ppm</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>
         <limiter>minmod</limiter>
         <max_iterations>10000</max_iterations>
