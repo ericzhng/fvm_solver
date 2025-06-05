@@ -7,6 +7,7 @@ from src.boundary import BoundaryCondition
 from src.equation.isentropic_gas_equation import IsentropicGas
 from src.equation.shallow_water_equation import ShallowWater
 from src.equation.euler_equation import EulerEquation
+from src.equation.advection_equation import AdvectionEquation
 from src.solver import Solver
 
 def main():
@@ -17,7 +18,7 @@ def main():
     runs the solver, and plots the final solution snapshot.
     """
     parser = argparse.ArgumentParser(description='Finite Volume Riemann Solver for 1D/2D/3D Hyperbolic Conservation Laws')
-    parser.add_argument('--config', type=str, default='config_euler_sod_shock_tube.xml', help='Path to XML configuration file')
+    parser.add_argument('--config', type=str, default='config_advection_step.xml', help='Path to XML configuration file')
     args = parser.parse_args()
 
     config = parse_xml_config(args.config)
@@ -40,6 +41,7 @@ def main():
         'euler': EulerEquation(gamma=config['gamma']),
         'isentropic': IsentropicGas(gamma=config['gamma'], k=config['k']),
         'shallow_water': ShallowWater(gravity=9.81),
+        'advection': AdvectionEquation(advection_speed=float(config.get('advection_speed', 1.0))),
     }
     equation = equation_systems[config['equation']]
 
@@ -64,6 +66,10 @@ def main():
         split_idx = int(config['nx'] * config['initial_conditions']['shallow_water']['split'])
         W[:, :split_idx] = np.array(config['initial_conditions']['shallow_water']['left'], dtype=float)[:, np.newaxis]
         W[:, split_idx:] = np.array(config['initial_conditions']['shallow_water']['right'], dtype=float)[:, np.newaxis]
+    elif config['equation'] == 'advection':
+        split_idx = int(config['nx'] * config['initial_conditions']['advection']['split'])
+        W[:, :split_idx] = np.array(config['initial_conditions']['advection']['left'], dtype=float)[:, np.newaxis]
+        W[:, split_idx:] = np.array(config['initial_conditions']['advection']['right'], dtype=float)[:, np.newaxis]
 
     # Set up boundary conditions (use new argument names)
     bc = BoundaryCondition(
@@ -95,7 +101,7 @@ def main():
     # Solve and save
     U_history, final_t = solver.solve(U0, config['T'], n_ghost=2)
     print(f"Final simulation time: {final_t:.4f}")
-    solver.plot_solution(U_history, final_t, 'height' if config['equation'] == 'shallow_water' else 'density')
+    solver.plot_solution(U_history, final_t, 'u' if config['equation'] == 'advection' else ('height' if config['equation'] == 'shallow_water' else 'density'))
 
 if __name__ == '__main__':
     main()

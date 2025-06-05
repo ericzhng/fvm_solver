@@ -8,7 +8,7 @@
         </domain>
     </geometry>
     <mesh>
-        <nx>100</nx>
+        <nx>200</nx>
         <stretch_factor>1.0</stretch_factor>
     </mesh>
     <equation>
@@ -45,7 +45,7 @@
     </initial_conditions>
     <solver_settings>
         <T>0.1</T>
-        <cfl>0.2</cfl>
+        <cfl>0.1</cfl>
         <flux>hllc</flux>
         <reconstruction>ppm</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>

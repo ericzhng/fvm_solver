@@ -186,17 +186,21 @@ class Solver:
 
             # Reconstruct states at interfaces
             UL, UR = self.reconstruction_method(U_ext, grid_dx_expand, n_ghost)
-            
+            WL = self.equation_system.to_primitive_batch(UL)
+            WR = self.equation_system.to_primitive_batch(UR)
+        
             # Compute fluxes
             if U.ndim == 2:  # 1D
+                # this assumes UL and UR are defined as the left and right states at each interface
                 F = np.zeros_like(UL)
-                WL = self.equation_system.to_primitive_batch(UL)
-                WR = self.equation_system.to_primitive_batch(UR)
                 for i in range(UL.shape[1]):
                     F[:, i] = self.flux(UL[:, i], UR[:, i], WL[:, i], WR[:, i])
-                
                 dF = F[:, 1:] - F[:, :-1]
-                U_new = U - (dt / grid_dx) * dF[:, n_ghost-1 : n_cells + n_ghost - 1]
+
+                if self.reconstruction_method.__name__ in ['piecewise_constant', 'muscl']:
+                    U_new = U - (dt / grid_dx) * dF[:, n_ghost-1 : n_cells + n_ghost - 1]
+                elif self.reconstruction_method.__name__ in ['ppm', 'weno5']:
+                    U_new = U - (dt / grid_dx) * dF[:, n_ghost-2 : n_cells + n_ghost - 2]
 
             else:  # 2D/3D
                 U_new = np.zeros_like(U)

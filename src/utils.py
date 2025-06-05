@@ -75,6 +75,9 @@ def parse_xml_config(filename):
     ic_swe_left_elem = root.find('initial_conditions/shallow_water/left')
     ic_swe_right_elem = root.find('initial_conditions/shallow_water/right')
     ic_swe_split_elem = root.find('initial_conditions/shallow_water/split')
+    ic_adv_left_elem = root.find('initial_conditions/advection/left')
+    ic_adv_right_elem = root.find('initial_conditions/advection/right')
+    ic_adv_split_elem = root.find('initial_conditions/advection/split')
     config['initial_conditions'] = {
         'euler': {
             'left': np.array([float(v.text) for v in ic_euler_left_elem if v.text is not None] if ic_euler_left_elem is not None else []),
@@ -90,6 +93,11 @@ def parse_xml_config(filename):
             'left': np.array([float(v.text) for v in ic_swe_left_elem if v.text is not None] if ic_swe_left_elem is not None else []),
             'right': np.array([float(v.text) for v in ic_swe_right_elem if v.text is not None] if ic_swe_right_elem is not None else []),
             'split': float(ic_swe_split_elem.text) if ic_swe_split_elem is not None and ic_swe_split_elem.text is not None else 0.5
+        },
+        'advection': {
+            'left': np.array([float(v.text) for v in ic_adv_left_elem if v.text is not None] if ic_adv_left_elem is not None else []),
+            'right': np.array([float(v.text) for v in ic_adv_right_elem if v.text is not None] if ic_adv_right_elem is not None else []),
+            'split': float(ic_adv_split_elem.text) if ic_adv_split_elem is not None and ic_adv_split_elem.text is not None else 0.5
         }
     }
     config['T'] = get_text(root.find('solver_settings/T'), default=1.0, cast=float)
@@ -128,6 +136,9 @@ def read_solution(filename):
                 elif len(vals) == 3:
                     x_list.append(float(vals[0]))
                     w_list.append([float(vals[1]), float(vals[2])])
+                elif len(vals) == 2:
+                    x_list.append(float(vals[0]))
+                    w_list.append(float(vals[1]))
                 i += 1
             x = np.array(x_list)
             W = np.array(w_list).T  # shape: (3, N)

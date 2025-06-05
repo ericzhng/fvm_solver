@@ -35,7 +35,8 @@ def animate_solution(data, variable_names=['density', 'velocity', 'pressure'], i
 def main():
     """Read and animate solution from file."""
     data = read_solution('solution.dat')
-    animate_solution(data, ['density'], interval=100)
+    # animate_solution(data, ['density'], interval=100)
+    animate_solution(data, ['u'], interval=100)
 
 if __name__ == '__main__':
     main()
