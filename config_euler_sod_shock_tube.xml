@@ -8,7 +8,7 @@
         </domain>
     </geometry>
     <mesh>
-        <nx>200</nx>
+        <nx>100</nx>
         <stretch_factor>1.0</stretch_factor>
     </mesh>
     <equation>
@@ -45,9 +45,9 @@
     </initial_conditions>
     <solver_settings>
         <T>0.1</T>
-        <cfl>0.1</cfl>
+        <cfl>0.5</cfl>
         <flux>hllc</flux>
-        <reconstruction>ppm</reconstruction>
+        <reconstruction>muscl</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>
         <limiter>minmod</limiter>
         <max_iterations>10000</max_iterations>

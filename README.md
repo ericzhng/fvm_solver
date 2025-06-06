@@ -8,9 +8,19 @@ A Python package for solving hyperbolic conservation laws (shallow water and Eul
 pip install -r requirements.txt
 ```
 
+## List of repo
+
+ApproximateRiemannSolvers
+CFD_1D_Sod_Shock_Tube
+hydro1d
+ppmpy
+Python-shock-tube
+
+
 ## Usage
 
 Run tests for shallow water or Euler equations:
+
 
 ```bash
 python tests/test_shallow_water.py
@@ -45,3 +55,4 @@ pytest tests/
 - Reconstruction methods: Piecewise constant, MUSCL, PPM, WENO5
 - Limiters: Minmod, Superbee, Van Leer, MC, Koren, Osher, Sweby, UMIST
 - Boundary conditions: Transmissive, reflective, periodic
+

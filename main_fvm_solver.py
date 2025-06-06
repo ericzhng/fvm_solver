@@ -18,7 +18,7 @@ def main():
     runs the solver, and plots the final solution snapshot.
     """
     parser = argparse.ArgumentParser(description='Finite Volume Riemann Solver for 1D/2D/3D Hyperbolic Conservation Laws')
-    parser.add_argument('--config', type=str, default='config_advection_step.xml', help='Path to XML configuration file')
+    parser.add_argument('--config', type=str, default='config_euler_sod_shock_tube.xml', help='Path to XML configuration file')
     args = parser.parse_args()
 
     config = parse_xml_config(args.config)
@@ -99,7 +99,7 @@ def main():
     U0 = equation.to_conservative_batch(W)
 
     # Solve and save
-    U_history, final_t = solver.solve(U0, config['T'], n_ghost=2)
+    U_history, final_t = solver.solve(U0, config['T'], n_ghost=1)
     print(f"Final simulation time: {final_t:.4f}")
     solver.plot_solution(U_history, final_t, 'u' if config['equation'] == 'advection' else ('height' if config['equation'] == 'shallow_water' else 'density'))
 
