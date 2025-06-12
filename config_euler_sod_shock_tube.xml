@@ -29,24 +29,24 @@
         </right_values>
     </boundary_conditions>
     <initial_conditions>
-        <euler>
-            <left>
-                <density>1.0</density>
-                <velocity>0.0</velocity>
-                <pressure>1.0</pressure>
-            </left>
-            <right>
-                <density>0.125</density>
-                <velocity>0.0</velocity>
-                <pressure>0.1</pressure>
-            </right>
-            <split>0.5</split>
-        </euler>
+        <left>
+            <density>1.0</density>
+            <velocity>0.0</velocity>
+            <pressure>1.0</pressure>
+        </left>
+        <right>
+            <density>0.125</density>
+            <velocity>0.0</velocity>
+            <pressure>0.1</pressure>
+        </right>
+        <split>0.5</split>
     </initial_conditions>
     <solver_settings>
+        <time_integration>euler</time_integration>
+        <ghost_cells>2</ghost_cells>
         <T>0.1</T>
-        <cfl>0.5</cfl>
-        <flux>hllc</flux>
+        <cfl>0.4</cfl>
+        <flux>roe</flux>
         <reconstruction>muscl</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>
         <limiter>minmod</limiter>

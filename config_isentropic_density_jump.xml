@@ -28,19 +28,19 @@
         </right_values>
     </boundary_conditions>
     <initial_conditions>
-        <isentropic>
-            <left>
-                <density>2.0</density>
-                <velocity>0.0</velocity>
-            </left>
-            <right>
-                <density>1.0</density>
-                <velocity>0.0</velocity>
-            </right>
-            <split>0.5</split>
-        </isentropic>
+        <left>
+            <density>2.0</density>
+            <velocity>0.0</velocity>
+        </left>
+        <right>
+            <density>1.0</density>
+            <velocity>0.0</velocity>
+        </right>
+        <split>0.5</split>
     </initial_conditions>
     <solver_settings>
+        <time_integration>euler</time_integration>
+        <ghost_cells>2</ghost_cells>
         <T>0.5</T>
         <cfl>0.5</cfl>
         <flux>hllc</flux>

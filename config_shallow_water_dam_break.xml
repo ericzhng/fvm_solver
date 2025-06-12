@@ -27,19 +27,19 @@
         </right_values>
     </boundary_conditions>
     <initial_conditions>
-        <shallow_water>
-            <left>
-                <height>1.0</height>
-                <velocity>0.0</velocity>
-            </left>
-            <right>
-                <height>0.1</height>
-                <velocity>0.0</velocity>
-            </right>
-            <split>0.5</split>
-        </shallow_water>
+        <left>
+            <height>1.0</height>
+            <velocity>0.0</velocity>
+        </left>
+        <right>
+            <height>0.1</height>
+            <velocity>0.0</velocity>
+        </right>
+        <split>0.5</split>
     </initial_conditions>
     <solver_settings>
+        <time_integration>euler</time_integration>
+        <ghost_cells>2</ghost_cells>
         <T>0.1</T>
         <cfl>0.3</cfl>
         <flux>hll</flux>
