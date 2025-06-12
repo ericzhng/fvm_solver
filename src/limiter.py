@@ -42,7 +42,7 @@ class Limiter:
         if self.limiter_type not in self.limiters:
             raise ValueError(f"Unsupported limiter: {self.limiter_type}. Choose from {list(self.limiters.keys())}")
 
-    def limit(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    def limit(self, a: np.ndarray, b: np.ndarray, c: np.ndarray = None) -> np.ndarray:
         """
         Apply the selected limiter to two slope arrays.
 
@@ -54,7 +54,11 @@ class Limiter:
             np.ndarray: Limited slope, same shape as input.
         """
         # Vectorized application of limiter
-        return np.vectorize(self.limiters[self.limiter_type], otypes=[float])(a, b)
+        if self.limiter_type == 'mc':
+            ret = np.vectorize(self.limiters[self.limiter_type], otypes=[float])(a, b, c)
+        else:
+            ret = np.vectorize(self.limiters[self.limiter_type], otypes=[float])(a, b)
+        return ret
 
     def minmod(self, a: float, b: float) -> float:
         """
@@ -101,7 +105,7 @@ class Limiter:
         """
         return 2 * a * b / (a + b + 1e-10) if a * b > 0 else 0.0
 
-    def mc(self, a: float, b: float) -> float:
+    def mc(self, a: float, b: float, c: float) -> float:
         """
         Monotonized Central (MC) limiter.
 

@@ -1,6 +1,7 @@
 import numpy as np
 from .equation.base_equation import EquationSystem
 from .limiter import Limiter
+from .flux import Flux
 
 class Reconstruction:
     """
@@ -15,30 +16,51 @@ class Reconstruction:
         limiter_beta (float, optional): Sharpness parameter for Osher/Sweby limiters.
     """
 
-    def __init__(self, equation_system: EquationSystem, reconstruct_in_primitive: bool = False, limiter: str = "", limiter_beta: float = 1.5):
+    def __init__(self, equation_system: EquationSystem, reconstruct_in_primitive: bool = False, 
+                 flux: str = 'hllc', limiter: str = "", limiter_beta: float = 1.5):
+        
         if not isinstance(equation_system, EquationSystem):
             raise TypeError("equation_system must be an EquationSystem instance")
         self.equation_system = equation_system
+        self.n_vars = self.equation_system.num_vars
         self.limiter = Limiter(limiter, beta=limiter_beta) if limiter else None
         self.reconstruct_in_primitive = reconstruct_in_primitive
+        self.flux = Flux(equation_system, lambda_max=1.0).get_flux(flux.lower())
 
-    def _validate_input(self, U: np.ndarray, n_ghost: int):
+
+    # compute and limit slopes for all cells
+    def compute_slopes(self, Q: np.ndarray, dx: np.ndarray) -> tuple:
         """
-        Validate input array shape and ghost cells.
+        Compute slopes for all reconstruction methods.
 
         Args:
-            U (np.ndarray): Conservative variables.
-            n_ghost (int): Number of ghost cells per side.
+            Q (np.ndarray): Either primitive or conservative variables, shape (num_vars, n_cells_total, ...).
+            dx (np.ndarray): Spatial grid distance array.
 
-        Raises:
-            ValueError: If U shape is invalid or insufficient ghost cells.
+        Returns:
+            dQ: (np.ndarray), slope of the left/right slopes for each cell
         """
-        if U.ndim < 2 or U.shape[0] != self.equation_system.num_vars:
-            raise ValueError(f"U must have shape (num_vars={self.equation_system.num_vars}, n_cells + 2*n_ghost, ...)")
-        if U.shape[1] < 2 * n_ghost + 1:
-            raise ValueError("U must have at least 2*n_ghost + 1 cells")
+        N = Q.shape[1]
+        dQ = np.zeros((self.n_vars, N))
 
-    def piecewise_constant(self, U: np.ndarray, dx: np.ndarray, n_ghost: int = 2) -> tuple:
+        # skip the 1st/last cell: 0, N-1
+        for c in range(1, N - 1):
+            distL = (dx[c] + dx[c - 1]) / 2
+            distR = (dx[c] + dx[c + 1]) / 2
+            distC = (dx[c - 1] + dx[c + 1]) / 2 + dx[c]
+
+            dqL = (Q[:, c] - Q[:, c - 1]) / distL
+            dqR = (Q[:, c + 1] - Q[:, c]) / distR
+            dqC = (Q[:, c + 1] - Q[:, c - 1]) / distC
+
+            if self.limiter == 'mc':
+                dQ[:, c] = self.limiter.limit(dqL, dqR, dqC)
+            else:
+                dQ[:, c] = self.limiter.limit(dqL, dqR)
+
+        return dQ
+
+    def piecewise_constant(self, U: np.ndarray, dx: np.ndarray) -> tuple:
         """
         Piecewise constant reconstruction.
 
@@ -48,19 +70,45 @@ class Reconstruction:
             n_ghost (int): Number of ghost cells per side.
 
         Returns:
-            tuple: (UL, UR), left and right states, each shape (num_vars, n_cells + 2*n_ghost - 1, ...).
+            res (np.ndarray): residual flux at the interface
         """
-        if n_ghost < 1:
-            raise ValueError("n_ghost must be at least 1")
-        self._validate_input(U, n_ghost)
+        N = U.shape[1]
+        Flux = np.zeros((self.n_vars, N - 1))
+        res = np.zeros((self.n_vars, N))
 
-        # assign left and right states: at interface i, left state is U[i], right state is U[i+1]
-        UL = U[:, :-1]
-        UR = U[:, 1:]
+        # iterate through 1 to N-3, then separately deal with left/right edges
+        #   c - cell id, i - interface id
+        for i in range(1, N - 2):
+            c = i
+            U_L = U[:, c]
+            U_R = U[:, c + 1]
+            W_L = self.equation_system.to_primitive(U_L)
+            W_R = self.equation_system.to_primitive(U_R)
+            Flux[:, i] = self.flux(U_L, U_R, W_L, W_R)
 
-        return UL, UR
+            # Compute fluxes: assumes U_L and U_R are defined as the left and right states at each interface
+            res[:, c] = res[:, c] + Flux[:, i] / dx[c]
+            res[:, c + 1] = res[:, c + 1] - Flux[:, i] / dx[c + 1]
 
-    def muscl(self, U: np.ndarray, dx: np.ndarray, n_ghost: int = 2) -> tuple:
+        # deal with leftmost face 0
+        U_L = U[:, 0]
+        U_R = U[:, 1]
+        W_L = self.equation_system.to_primitive(U_L)
+        W_R = self.equation_system.to_primitive(U_R)
+        Flux[:, 0] = self.flux(U_L, U_R, W_L, W_R)
+        res[:, 1] = res[:, 1] + Flux[:, 0] / dx[0]
+
+        # deal with rightmost face N-2
+        U_L = U[:, N-2]
+        U_R = U[:, N-1]
+        W_L = self.equation_system.to_primitive(U_L)
+        W_R = self.equation_system.to_primitive(U_R)
+        Flux[:, N-2] = self.flux(U_L, U_R, W_L, W_R)
+        res[:, N-2] = res[:, N-2] + Flux[:, N-2] / dx[N-2]
+
+        return res
+
+    def muscl(self, U: np.ndarray, dx: np.ndarray) -> tuple:
         """
         MUSCL reconstruction with slope limiting.
 
@@ -70,51 +118,82 @@ class Reconstruction:
             n_ghost (int): Number of ghost cells per side.
 
         Returns:
-            tuple: (UL, UR), left and right states, each shape (num_vars, n_cells + 2*n_ghost - 1, ...).
+            tuple: (U_L, U_R), left and right states, each shape (num_vars, n_cells + 2*n_ghost - 1, ...).
         """
-        if n_ghost < 1:
-            raise ValueError("n_ghost must be at least 1")
-        self._validate_input(U, n_ghost)
+        N = U.shape[1]
+        Flux = np.zeros((self.n_vars, N - 1))
+        res = np.zeros((self.n_vars, N))
 
-        if dx.ndim == 1:
-            n_cells_total = U.shape[1]
-            UL = np.zeros((self.equation_system.num_vars, n_cells_total - 1))
-            UR = np.zeros((self.equation_system.num_vars, n_cells_total - 1))
+        if self.reconstruct_in_primitive:
+            W = self.equation_system.to_primitive_batch(U)
+            slopes = self.compute_slopes(W, dx)
 
-            if self.reconstruct_in_primitive:
-                W = self.equation_system.to_primitive_batch(U)
-                for j in range(self.equation_system.num_vars):
-                    left_slopes = (W[j, 1:-1] - W[j, :-2]) / dx[:-1]
-                    right_slopes = (W[j, 2:] - W[j, 1:-1]) / dx[1:]
-                    slopes = self.limiter.limit(left_slopes, right_slopes) if self.limiter else np.zeros_like(left_slopes)
-                    slopes = np.insert(slopes, 0, 0)
-                    slopes = np.append(slopes, 0)
-                    W_L = W[j, :-1] + 0.5 * dx[:-1] * slopes[:-1]
-                    W_R = W[j, 1:] - 0.5 * dx[:-1] * slopes[1:]
-                    # Stack with other primitive variables for batch conversion
-                    W_L_full = W.copy()
-                    W_R_full = W.copy()
-                    W_L_full[j, :-1] = W_L
-                    W_R_full[j, 1:] = W_R
-                    UL[j, :] = self.equation_system.to_conservative_batch(W_L_full[:, :-1])[j]
-                    UR[j, :] = self.equation_system.to_conservative_batch(W_R_full[:, 1:])[j]
-                return UL, UR
-            else:
-                for j in range(self.equation_system.num_vars):
-                    dist = (dx[:-1] + dx[1:]) / 2
-                    left_slopes = (U[j, 1:-1] - U[j, :-2]) / dist[:-1]
-                    right_slopes = (U[j, 2:] - U[j, 1:-1]) / dist[1:]
-                    slopes = self.limiter.limit(left_slopes, right_slopes) if self.limiter else np.zeros_like(left_slopes)
-                    slopes = np.insert(slopes, 0, 0)
-                    slopes = np.append(slopes, 0)
-                    UL[j, :] = U[j, :-1] + 0.5 * dx[:-1] * slopes[:-1]
-                    UR[j, :] = U[j, 1:] - 0.5 * dx[:-1] * slopes[1:]
-                return UL, UR
+            # iterate through 1 to N-3, then separately deal with left/right edges
+            #   c - cell id, i - interface id
+            for i in range(1, N - 2):
+                c = i
+                W_L = W[:, c] + slopes[:, c] * dx[c] / 2.0
+                W_R = W[:, c + 1] - slopes[:, c + 1] * dx[c + 1] / 2.0
+                U_L = self.equation_system.to_conservative(W_L)
+                U_R = self.equation_system.to_conservative(W_R)
+                Flux[:, i] = self.flux(U_L, U_R, W_L, W_R)
+                
+                # Compute fluxes: assumes U_L and U_R are defined as the left and right states at each interface
+                res[:, c] = res[:, c] + Flux[:, i] / dx[c]
+                res[:, c + 1] = res[:, c + 1] - Flux[:, i] / dx[c + 1]
+
+            # deal with leftmost face 0
+            W_R = W[:, 1] - slopes[:, 1] * dx[1] / 2.0
+            W_L = W_R
+            U_L = self.equation_system.to_conservative(W_L)
+            U_R = self.equation_system.to_conservative(W_R)
+            Flux[:, 0] = self.flux(U_L, U_R, W_L, W_R)
+            res[:, 1] = res[:, 1] + Flux[:, 0] / dx[0]
+
+            # deal with rightmost face N-2
+            W_L = W[:, N-2] + slopes[:, N-2] * dx[N-2] / 2.0
+            W_R = W_L
+            W_L = self.equation_system.to_primitive(U_L)
+            W_R = self.equation_system.to_primitive(U_R)
+            Flux[:, N-2] = self.flux(U_L, U_R, W_L, W_R)
+            res[:, N-2] = res[:, N-2] + Flux[:, N-2] / dx[N-2]
+
         else:
-            # Placeholder for 2D/3D MUSCL reconstruction
-            raise NotImplementedError("2D/3D MUSCL reconstruction not yet implemented")
-    
-    def ppm(self, U: np.ndarray, dx: np.ndarray, n_ghost: int = 2, imod_delta: bool = False) -> tuple:
+            slopes = self.compute_slopes(U, dx)
+
+            # iterate through 1 to N-3, then separately deal with left/right edges
+            #   c - cell id, i - interface id
+            for i in range(1, N - 2):
+                c = i
+                U_L = U[:, c] + slopes[:, c] * dx[c] / 2.0
+                U_R = U[:, c + 1] - slopes[:, c + 1] * dx[c + 1] / 2.0
+                W_L = self.equation_system.to_primitive(U_L)
+                W_R = self.equation_system.to_primitive(U_R)
+                Flux[:, i] = self.flux(U_L, U_R, W_L, W_R)
+                
+                # Compute fluxes: assumes U_L and U_R are defined as the left and right states at each interface
+                res[:, c] = res[:, c] + Flux[:, i] / dx[c]
+                res[:, c + 1] = res[:, c + 1] - Flux[:, i] / dx[c + 1]
+
+            # deal with leftmost face 0
+            U_R = U[:, 0] - slopes[:, 1] * dx[1] / 2.0
+            U_L = U_R
+            W_L = self.equation_system.to_primitive(U_L)
+            W_R = self.equation_system.to_primitive(U_R)
+            Flux[:, 0] = self.flux(U_L, U_R, W_L, W_R)
+            res[:, 1] = res[:, 1] + Flux[:, 0] / dx[0]
+
+            # deal with rightmost face N-2
+            U_L = U[:, N-2] + slopes[:, N-2] * dx[N-2] / 2.0
+            U_R = U_L
+            W_L = self.equation_system.to_primitive(U_L)
+            W_R = self.equation_system.to_primitive(U_R)
+            Flux[:, N-2] = self.flux(U_L, U_R, W_L, W_R)
+            res[:, N-2] = res[:, N-2] + Flux[:, N-2] / dx[N-2]
+
+        return res
+
+    def ppm(self, U: np.ndarray, dx: np.ndarray, imod_delta: bool = False) -> tuple:
         """
         Piecewise Parabolic Method (PPM) reconstruction (conservative variables).
           Constructs parabolic profiles in each cell, applies monotonicity constraints and slope limiting.
@@ -123,19 +202,14 @@ class Reconstruction:
         Args:
             U (np.ndarray): Conservative variables, shape (num_vars, n_cells + 2*n_ghost, ...).
             dx (np.ndarray): Spatial grid distance array.
-            n_ghost (int): Number of ghost cells per side (default: 2).
             imod_delta (bool): whether to apply the modified delta method (default: False).
 
         Returns:
-            tuple: (UL, UR), left and right states, each shape (num_vars, n_cells + 2*n_ghost - 1, ...).
+            tuple: (U_L, U_R), left and right states, each shape (num_vars, n_cells + 2*n_ghost - 1, ...).
 
         Raises:
             ValueError: If n_ghost is insufficient or dx <= 0.
         """
-        if n_ghost < 2:
-            raise ValueError(f"n_ghost must be at least 2")
-        self._validate_input(U, n_ghost)
-
         if dx.ndim == 1:
             # n_cells_total includes the actual cells plus ghost cells
             # n_delta = n_cells_total - 2
@@ -144,8 +218,8 @@ class Reconstruction:
             n_vars, n_cells_total = U.shape
             n_cells_cal = n_cells_total - 4
 
-            UL = np.zeros((n_vars, n_cells_cal + 1))
-            UR = np.zeros((n_vars, n_cells_cal + 1))
+            U_L = np.zeros((n_vars, n_cells_cal + 1))
+            U_R = np.zeros((n_vars, n_cells_cal + 1))
 
             for j in range(n_vars):
                 # Compute delta_m_A and delta_A, first 1 and last 1 cells are not used
@@ -191,13 +265,13 @@ class Reconstruction:
                         if (aR - aL) * (aj - a_avg) < -a_delta**2 / 6:
                             aR = 3 * aj - 2 * aL
                     
-                    UL[j, i - 2] = aL
-                    UR[j, i - 1] = aR
+                    U_L[j, i - 2] = aL
+                    U_R[j, i - 1] = aR
                 
-                UR[j, 0] = UL[j, 0]  # Ensure first interface is consistent
-                UL[j, -1] = UR[j, -2]  # Ensure last interface is consistent
+                U_R[j, 0] = U_L[j, 0]  # Ensure first interface is consistent
+                U_L[j, -1] = U_R[j, -2]  # Ensure last interface is consistent
             
-            return UL, UR
+            return U_L, U_R
         else:
             # Placeholder for 2D/3D PPM reconstruction
             raise NotImplementedError("2D/3D PPM reconstruction not yet implemented")

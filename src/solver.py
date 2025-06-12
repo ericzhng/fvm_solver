@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from .equation.base_equation import EquationSystem
-from .flux import Flux
 from .reconstruction import Reconstruction
 from .boundary import BoundaryCondition
 
@@ -13,8 +12,8 @@ class Solver:
     """
 
     def __init__(self, equation_system: EquationSystem, boundary_condition: BoundaryCondition, 
-                 grid: np.ndarray,
-                 cfl: float = 0.5, flux: str = 'hllc', reconstruction: str = 'weno5', 
+                 grid: np.ndarray, n_ghost: int = 2,
+                 cfl: float = 0.5, flux: str = 'hllc', str_reconstruction: str = 'weno5', 
                  reconstruct_in_primitive: bool = False, limiter: str = 'minmod',
                  max_iterations: int = 10000, convergence_tol: float = 1e-6,
                  output_filename: str = 'solution.dat'):
@@ -51,21 +50,67 @@ class Solver:
         self.equation_system = equation_system
         self.bc = boundary_condition
         self.grid = grid
-        self.flux = Flux(equation_system, lambda_max=1.0).get_flux(flux.lower())
-        self.reconstruction = Reconstruction(equation_system, reconstruct_in_primitive, limiter=limiter if reconstruction.lower() == 'muscl' else "")
-        self.reconstruction_method = {
-            'piecewise_constant': self.reconstruction.piecewise_constant,
-            'muscl': self.reconstruction.muscl,
-            'ppm': self.reconstruction.ppm,
-            # 'weno5': self.reconstruction.weno5
-        }[reconstruction.lower()]
+        self.reconstruction_obj = Reconstruction(equation_system, reconstruct_in_primitive, flux, limiter if str_reconstruction.lower() == 'muscl' else "")
+        self.reconst_method = {
+            'piecewise_constant': self.reconstruction_obj.piecewise_constant,
+            'muscl': self.reconstruction_obj.muscl,
+            'ppm': self.reconstruction_obj.ppm,
+            # 'weno5': self.reconstruction_obj.weno5
+            }[str_reconstruction.lower()]
         self.cfl = cfl
         self.max_iterations = max_iterations
         self.convergence_tol = convergence_tol
         self.output_filename = output_filename
         self.variable_names = equation_system.var_names
+        self.num_vars = self.equation_system.num_vars
 
-    def compute_dt(self, U: np.ndarray) -> float:
+        n_cells = self.grid.size - 1
+
+        self.n_ghost = n_ghost
+        self.n_cells = n_cells
+        self.n_cells_total = n_cells + 2 * n_ghost
+
+        dx_origin = self.grid[1:] - self.grid[0:-1]
+        self.dx = dx_origin
+
+        dx_aug = np.zeros(self.n_cells_total)
+        dx_aug[n_ghost:n_ghost + n_cells] = dx_origin
+        dx_aug[:n_ghost] = dx_origin[0]
+        dx_aug[n_cells + n_ghost:] = dx_origin[-1]
+        self.dx_aug = dx_aug
+
+    # function to augment the grid with ghost cells
+    def augment_vars(self, U: np.ndarray) -> np.ndarray:
+        """Augment conservative variables with ghost cells.
+
+        Args:
+            U (np.ndarray): Conservative variables, shape (n_vars, n_cells).
+
+        Returns:
+            np.ndarray: Augmented conservative variables with ghost cells.
+        """
+        if U.ndim != 2 or U.shape[0] != self.num_vars or U.shape[1] != self.n_cells:
+            raise ValueError(f"U must have shape ({self.num_vars}, {self.n_cells})")
+
+        U_aug = np.zeros((self.num_vars, self.n_cells_total))
+        U_aug[:, self.n_ghost:self.n_ghost + self.n_cells] = U
+        return U_aug
+    
+    def de_augment_vars(self, U_aug: np.ndarray) -> np.ndarray:
+        """Remove ghost cells from augmented conservative variables.
+
+        Args:
+            U_aug (np.ndarray): Augmented conservative variables, shape (n_vars, n_cells_total).
+
+        Returns:
+            np.ndarray: Conservative variables without ghost cells.
+        """
+        if U_aug.ndim != 2 or U_aug.shape[0] != self.num_vars or U_aug.shape[1] != self.n_cells_total:
+            raise ValueError(f"U_aug must have shape ({self.num_vars}, {self.n_cells_total})")
+
+        return U_aug[:, self.n_ghost:self.n_ghost + self.n_cells]
+
+    def compute_dt(self, U_aug: np.ndarray) -> float:
         """Compute time step based on CFL condition for 1D/2D/3D grids.
 
         Args:
@@ -77,32 +122,19 @@ class Solver:
         Raises:
             ValueError: If grid or U shape is invalid.
         """
-        grid = self.grid
-        if grid.ndim == 1:
-            if grid.size != U.shape[1] + 1:
-                raise ValueError("grid must be of length n_cells + 1")
-        if U.ndim < 2 or U.shape[0] != self.equation_system.num_vars:
-            raise ValueError(f"U must have shape ({self.equation_system.num_vars}, n_cells, ...)")
+        if U_aug.ndim < 2 or U_aug.shape[0] != self.num_vars or U_aug.shape[1] != self.n_cells_total:
+            raise ValueError(f"U must have shape ({self.num_vars}, {self.n_cells_total})")
 
-        W = self.equation_system.to_primitive_batch(U)
+        dx = self.dx_aug
+
+        W_aug = self.equation_system.to_primitive_batch(U_aug)
         min_value = float('inf')
-        if U.ndim == 2:  # 1D
-            n_cells = U.shape[1]
-            for i in range(n_cells):
-                dx = grid[i+1] - grid[i]
-                value = dx / max(abs(W[self.equation_system.vel_idx, i]) + self.equation_system.sound_speed(W[:, i]),
-                                self.equation_system.min_value)
-                min_value = min(min_value, value)
-        else:  # 2D/3D
-            dx = grid[0][1] - grid[0][0]
-            for idx in np.ndindex(U.shape[1:]):
-                value = dx / max(abs(W[self.equation_system.vel_idx, idx]) + self.equation_system.sound_speed(W[:, idx]),
-                                self.equation_system.min_value)
-                min_value = min(min_value, value)
-        adaptive_cfl = min(
-            self.cfl,
-            0.4 if self.reconstruction_method.__name__ == 'weno5' else 0.2 if self.reconstruction_method.__name__ == 'ppm' else self.cfl
-        )
+        
+        for i in range(self.n_ghost, self.n_cells + self.n_ghost):
+            value = dx[i] / max(abs(W_aug[self.equation_system.vel_idx, i]) + self.equation_system.sound_speed(W_aug[:, i]), self.equation_system.min_value)
+            min_value = min(min_value, value)
+
+        adaptive_cfl = min( self.cfl, 0.4 if self.reconst_method.__name__ == 'weno5' else 0.2 if self.reconst_method.__name__ == 'ppm' else self.cfl )
         return adaptive_cfl * min_value
 
     def save_solution(self, U: np.ndarray, t: float, step: int):
@@ -128,7 +160,7 @@ class Solver:
                     f.write(f"{' '.join(str(i) for i in idx)} " + " ".join(f"{w:.6e}" for w in W[:, idx]) + "\n")
             f.write("\n")
 
-    def solve(self, U0: np.ndarray, T: float, n_ghost: int = 2) -> tuple:
+    def solve(self, U0: np.ndarray, T: float, time_integration_method: str) -> tuple:
         """
         Solve the hyperbolic system until time T in 1D/2D/3D.
 
@@ -136,9 +168,8 @@ class Solver:
         Saves solution to ASCII file and monitors convergence.
 
         Args:
-            U0 (np.ndarray): Initial conservative variables, shape (n_vars, n_cells, ...).
+            U0 (np.ndarray): Initial conservative variables, shape (n_vars, n_cells + 2 * n_ghost, ...).
             T (float): Final simulation time.
-            n_ghost (int): Number of ghost cells per side.
 
         Returns:
             tuple: (history, t), where history is array of states [n_steps, n_vars, n_cells, ...], t is final time.
@@ -147,92 +178,81 @@ class Solver:
             ValueError: If inputs are invalid or n_ghost is insufficient.
             RuntimeError: If solution does not converge within max_iterations or tolerance.
         """
-        grid = self.grid
         if T < 0:
             raise ValueError("T must be non-negative")
-        if grid.ndim == 1 and grid.size < 3:
+        if self.grid.ndim == 1 and self.grid.size < 3:
             raise ValueError("Grid must have at least 2 cells (3 points)")
-        if U0.ndim < 2 or U0.shape[0] != self.equation_system.num_vars:
-            raise ValueError(f"U0 must have shape ({self.equation_system.num_vars}, n_cells, ...)")
-        
-        min_ghost = 2 if self.reconstruction_method.__name__ in ['ppm', 'weno5'] else 1
-        if n_ghost < min_ghost:
-            raise ValueError(f"n_ghost must be at least {min_ghost} for {self.reconstruction_method.__name__}")
+        if U0.ndim < 2 or U0.shape[0] != self.num_vars or U0.shape[1] != self.n_cells:
+            raise ValueError(f"U0 must be argumented and have shape ({self.num_vars}, {self.n_cells_total}, ...)")
+
+        min_ghost = 2 if self.reconst_method.__name__ in ['ppm', 'weno5'] else 1
+        if self.n_ghost < min_ghost:
+            raise ValueError(f"n_ghost must be at least {min_ghost} for {self.reconst_method.__name__}")
+
+        U0_aug = self.augment_vars(U0)
 
         # Clear output file
         open(self.output_filename, 'w').close()
 
-        n_cells = U0.shape[1]
-        n_cells_total = n_cells + 2 * n_ghost
+        # Enforce boundary conditions on initial state
+        self.bc.enforce_bc(U0_aug)
+        U = U0_aug.copy()
 
-        grid_dx = self.grid[1:] - self.grid[0:-1]
-        grid_dx_expand = np.zeros(n_cells_total)
-        grid_dx_expand[n_ghost:n_ghost + n_cells] = grid_dx
-        grid_dx_expand[:n_ghost] = grid_dx[0]
-        grid_dx_expand[n_cells + n_ghost:] = grid_dx[-1]
-
-        U = U0.copy()
-        history = [U.copy()]
+        history = [U0.copy()]
         t = 0.0
         n = 0
         prev_residual = float('inf')
 
         while t < T and n < self.max_iterations:
-            # Apply boundary conditions, expanding grid
-            U_ext = self.bc.apply_bcs(U, n_ghost)
 
             # Compute time step
             dt = min(self.compute_dt(U), T - t)
+            t += dt
+            n += 1
 
-            # Reconstruct states at interfaces
-            UL, UR = self.reconstruction_method(U_ext, grid_dx_expand, n_ghost)
-            WL = self.equation_system.to_primitive_batch(UL)
-            WR = self.equation_system.to_primitive_batch(UR)
-        
-            # Compute fluxes
-            if U.ndim == 2:  # 1D
-                # this assumes UL and UR are defined as the left and right states at each interface
-                F = np.zeros_like(UL)
-                for i in range(UL.shape[1]):
-                    F[:, i] = self.flux(UL[:, i], UR[:, i], WL[:, i], WR[:, i])
-                dF = F[:, 1:] - F[:, :-1]
+            # chosen between RK2 and 1st order update
+            # RK2 method
+            if time_integration_method == 'rk2':
+                # RK2 1st step
+                U_star = U - dt * self.reconst_method(U, self.dx_aug)
+                self.bc.enforce_bc(U_star)
+            
+                # RK2 2nd step / update U
+                U_new = (U + U_star - dt * self.reconst_method(U_star, self.dx_aug)) / 2.0
+                self.bc.enforce_bc(U_new)
+                
+            elif time_integration_method == 'euler':  # 1st order update
+                # 1st order update
+                U_new = U - dt * self.reconst_method(U, self.dx_aug)
+                self.bc.enforce_bc(U_new)
 
-                if self.reconstruction_method.__name__ in ['piecewise_constant', 'muscl']:
-                    U_new = U - (dt / grid_dx) * dF[:, n_ghost-1 : n_cells + n_ghost - 1]
-                elif self.reconstruction_method.__name__ in ['ppm', 'weno5']:
-                    U_new = U - (dt / grid_dx) * dF[:, n_ghost-2 : n_cells + n_ghost - 2]
+            # raise error if not the above
+            else:
+                raise RuntimeError(f"time integration_method method {time_integration_method} not implemented yet")
 
-            else:  # 2D/3D
-                U_new = np.zeros_like(U)
-                raise NotImplementedError("2D/3D flux computation not yet implemented")
-
-            # Check convergence
+            # Check residual for possible convergence
             normU = np.linalg.norm(U)
             residual = np.linalg.norm(U_new - U) / normU if normU > 0 else np.linalg.norm(U_new)
 
             U = U_new
-            self.save_solution(U, t, n)
-            history.append(U.copy())
-            
-            t += dt
-            n += 1
 
+            U_save = self.de_augment_vars(U)
+            self.save_solution(U_save, t, n)
+            history.append(U_save)
+            
             # Print progress
             percent = (t / T * 100) if T != 0 else 0.0
             print(f"\rStep {n:03d} | Time: {t:.4f} / {T:.3f} ({percent:5.1f}%) | Δt = {dt:.4f} s | Residual {residual * 100:5.2f} %", end='\n', flush=True)
 
             # check if residual is suddenly increasing by 5 times
-            if n > 0 and residual > 4 * prev_residual:
-                raise RuntimeError(f"Possible divergence; residual increased by more than 4 times: {residual / prev_residual:.2g}")
+            if n > 0 and residual > 5 * prev_residual:
+                raise RuntimeError(f"Possible divergence; residual increased by more than 5 times: {residual / prev_residual:.2g}")
             prev_residual = residual
             
             # Check convergence tolerance
             if residual < self.convergence_tol:
                 print(f"Converged at step {n}, residual {residual:.6e}")
                 break
-
-            if n >= self.max_iterations:
-                raise RuntimeError("Maximum iterations reached without convergence")
 
         print(f"Simulation completed: {n} steps, final time {t:.6f}")
         return np.array(history), t
@@ -250,10 +270,9 @@ class Solver:
         Raises:
             ValueError: If variable is invalid or history shape is incorrect.
         """
-        grid = self.grid
-        x = grid
-        if history.ndim < 3 or history.shape[1] != self.equation_system.num_vars:
-            raise ValueError(f"history must have shape (n_steps, {self.equation_system.num_vars}, n_cells, ...)")
+        x = self.grid
+        if history.ndim < 3 or history.shape[1] != self.num_vars:
+            raise ValueError(f"history must have shape (n_steps, {self.num_vars}, n_cells, ...)")
         
         U_final = history[-1]
         W_final = self.equation_system.to_primitive_batch(U_final)

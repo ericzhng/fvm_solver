@@ -190,28 +190,42 @@ class EulerEquation(EquationSystem):
         lambda_1 = u_roe - c_roe
         lambda_2 = u_roe
         lambda_3 = u_roe + c_roe
-        lambdas = np.array([lambda_1, lambda_2, lambda_3])
+        lambdas = np.array(np.abs([lambda_1, lambda_2, lambda_3]))
 
         # Improved entropy fix (Harten-Hyman)
         delta = 0.1 * c_roe
-        abs_lambdas = np.abs(lambdas)
+        lambdas_mod = np.zeros_like(lambdas)
         for i in range(3):
-            if abs_lambdas[i] < delta:
-                abs_lambdas[i] = 0.5 * (lambdas[i] + np.sqrt(lambdas[i]**2 + delta**2))
+            if lambdas_mod[i] < delta:
+                lambdas_mod[i] = 0.5 * (lambdas[i] + np.sqrt(lambdas[i]**2 + delta**2))
                 # abs_lambdas[i] = 0.5 * (lambdas[i]**2 / delta + delta)
-                
-        # Differences
-        delta_U = UR - UL
+        
+        # Differences in primitive variables.
+        delta_W = WR - WL
 
         # Compute wave strengths (alpha) using conservative variable jumps
-        delta_rho = delta_U[0]
-        delta_rho_u = delta_U[1]
-        delta_rho_E = delta_U[2]
-        alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_value)) * (
-            delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
-        )
-        alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_value)
-        alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_value)
+        delta_r = delta_W[0]
+        delta_u = delta_W[1]
+        delta_p = delta_W[2]
+
+        alpha_2 = -((delta_p / (c2_roe + self.min_value)) - delta_r)
+        RT = sqrt_rhoR / sqrt_rhoL
+        r = RT * rhoL
+        alpha_1 = (delta_p - r * c_roe * delta_u) / (2 * c2_roe + self.min_value)
+        alpha_3 = (delta_p + r * c_roe * delta_u) / (2 * c2_roe + self.min_value)
+
+        # # Differences in primitive variables.
+        # delta_U = UR - UL
+
+        # # Compute wave strengths (alpha) using conservative variable jumps
+        # delta_rho = delta_U[0]
+        # delta_rho_u = delta_U[1]
+        # delta_rho_E = delta_U[2]
+        # alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_value)) * (
+        #     delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
+        # )
+        # alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_value)
+        # alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_value)
 
         # Roe eigenvectors
         r1 = np.array([1, u_roe - c_roe, h_roe - u_roe * c_roe])
@@ -219,7 +233,7 @@ class EulerEquation(EquationSystem):
         r3 = np.array([1, u_roe + c_roe, h_roe + u_roe * c_roe])
 
         # |A| * delta_U
-        dissipative_term = abs_lambdas[0] * alpha_1 * r1 + abs_lambdas[1] * alpha_2 * r2 + abs_lambdas[2] * alpha_3 * r3
+        dissipative_term = lambdas_mod[0] * alpha_1 * r1 + lambdas_mod[1] * alpha_2 * r2 + lambdas_mod[2] * alpha_3 * r3
 
         # Physical fluxes
         FL = self.compute_flux(UL, WL)

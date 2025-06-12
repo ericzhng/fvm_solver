@@ -23,6 +23,7 @@ class BoundaryCondition:
         equation_system: EquationSystem,
         bc_kind: str,
         grid: np.ndarray,
+        n_ghost: int,
         left_boundary_state: Optional[np.ndarray] = None,
         right_boundary_state: Optional[np.ndarray] = None
     ):
@@ -45,7 +46,12 @@ class BoundaryCondition:
 
         self.equation_system = equation_system
         self.bc_kind = bc_kind.lower()
+
         self.grid = grid
+        self.n_cells = grid.size
+        self.n_ghost = n_ghost
+        self.dx = np.diff(grid) if self.grid.size == 1 else np.diff(grid, axis=0)
+
         self.left_boundary_state = left_boundary_state if left_boundary_state is not None else np.zeros(equation_system.num_vars)
         self.right_boundary_state = right_boundary_state if right_boundary_state is not None else np.zeros(equation_system.num_vars)
         
@@ -53,7 +59,7 @@ class BoundaryCondition:
         if self.bc_kind not in valid_bcs:
             raise ValueError(f"bc_kind must be one of {valid_bcs}")
 
-    def apply_bcs(self, U: np.ndarray, n_ghost: int) -> np.ndarray:
+    def enforce_bc(self, U_aug: np.ndarray) -> np.ndarray:
         """
         Apply boundary conditions to the solution array, expanding it with ghost cells.
 
@@ -68,59 +74,47 @@ class BoundaryCondition:
             ValueError: If n_ghost < 1 or if U has an invalid shape.
             NotImplementedError: If called for 2D/3D arrays (only 1D is implemented).
         """
-        if n_ghost < 1:
+        if self.n_ghost < 1:
             raise ValueError("n_ghost must be at least 1")
-        if U.ndim < 2 or U.shape[0] != self.equation_system.num_vars:
+        if U_aug.ndim < 2 or U_aug.shape[0] != self.equation_system.num_vars:
             raise ValueError(f"U must have shape ({self.equation_system.num_vars}, n_cells, ...)")
-        n_cells = U.shape[1]
-        U_work = U.copy()
+        
+        n_ghost = self.n_ghost
+        n_cells = self.n_cells
+        dx = self.dx
+        U = U_aug[:, n_ghost : n_ghost + n_cells - 1]
 
-        if U.ndim == 2:  # 1D
-            n_cells_total = n_cells + 2 * n_ghost
-            U_new = np.zeros([self.equation_system.num_vars, n_cells_total])
-            U_new[:, n_ghost:n_ghost + n_cells] = U_work
+        # Populate ghost cells based on the boundary condition type
+        if self.bc_kind == 'dirichlet':
+            U_aug[:, :n_ghost] = U[:, 1]
+            U_aug[:, n_cells + n_ghost:] = U[:, 1]
 
-            grid_dx = self.grid[1:] - self.grid[0:-1]
-            grid_dx_new = np.zeros(n_cells_total)
-            grid_dx_new[n_ghost:n_ghost + n_cells] = grid_dx
-            grid_dx_new[:n_ghost] = grid_dx[0]
-            grid_dx_new[n_cells + n_ghost:] = grid_dx[-1]
+        elif self.bc_kind == 'neumann':
+            W_left = self.equation_system.to_primitive(U[:, 0])
+            W_right = self.equation_system.to_primitive(U[:, -1])
+            for i in range(n_ghost):
+                Wl = W_left - (n_ghost - i) * dx[0] * self.left_boundary_state
+                U_aug[:, i] = self.equation_system.to_conservative(Wl)
 
-            if self.bc_kind == 'dirichlet':
-                U_left = self.equation_system.to_conservative(self.left_boundary_state)
-                U_right = self.equation_system.to_conservative(self.right_boundary_state)
-                U_new[:, :n_ghost] = U_left[:, np.newaxis]
-                U_new[:, n_cells + n_ghost:] = U_right[:, np.newaxis]
+                Wr = W_right + (i + 1) * dx[-1] * self.right_boundary_state
+                U_aug[:, n_cells + n_ghost + i - 1] = self.equation_system.to_conservative(Wr)
 
-            elif self.bc_kind == 'neumann':
-                W_left = self.equation_system.to_primitive(U_work[:, 0])
-                W_right = self.equation_system.to_primitive(U_work[:, -1])
-                for i in range(n_ghost):
-                    Wl = W_left - (n_ghost - i) * grid_dx_new[0] * self.left_boundary_state
-                    U_new[:, i] = self.equation_system.to_conservative(Wl)
+        elif self.bc_kind == 'periodic':
+            U_aug[:, :n_ghost] = U[:, n_cells:n_cells + n_ghost]
+            U_aug[:, n_cells + n_ghost:] = U[:, n_ghost:2 * n_ghost]
 
-                    Wr = W_right + (i + 1) * grid_dx_new[-1] * self.right_boundary_state
-                    U_new[:, n_cells + n_ghost + i] = self.equation_system.to_conservative(Wr)
+        elif self.bc_kind == 'reflective':
+            if self.equation_system.vel_idx is None:
+                raise ValueError("Reflective BC requires a valid vel_idx")
+            
+            W_left = self.equation_system.to_primitive(U[:, 0])
+            W_right = self.equation_system.to_primitive(U[:, -1])
+            for i in range(n_ghost):
+                Wl = W_left.copy()
+                Wl[self.equation_system.vel_idx] = -Wl[self.equation_system.vel_idx]
+                U_aug[:, i] = self.equation_system.to_conservative(Wl)
+                Wr = W_right.copy()
+                Wr[self.equation_system.vel_idx] = -Wr[self.equation_system.vel_idx]
+                U_aug[:, n_cells + n_ghost + i - 1] = self.equation_system.to_conservative(Wr)
 
-            elif self.bc_kind == 'periodic':
-                U_new[:, :n_ghost] = U_new[:, n_cells:n_cells + n_ghost]
-                U_new[:, n_cells + n_ghost:] = U_new[:, n_ghost:2 * n_ghost]
-
-            elif self.bc_kind == 'reflective':
-                if self.equation_system.vel_idx is None:
-                    raise ValueError("Reflective BC requires a valid vel_idx")
-                
-                W_left = self.equation_system.to_primitive(U_work[:, 0])
-                W_right = self.equation_system.to_primitive(U_work[:, -1])
-                for i in range(n_ghost):
-                    Wl = W_left.copy()
-                    Wl[self.equation_system.vel_idx] = -Wl[self.equation_system.vel_idx]
-                    U_new[:, i] = self.equation_system.to_conservative(Wl)
-                    Wr = W_right.copy()
-                    Wr[self.equation_system.vel_idx] = -Wr[self.equation_system.vel_idx]
-                    U_new[:, n_cells + n_ghost + i] = self.equation_system.to_conservative(Wr)
-
-            return U_new
-        else:
-            # Placeholder for 2D/3D boundary conditions
-            raise NotImplementedError("2D/3D boundary conditions not yet implemented")
+        return U_aug
