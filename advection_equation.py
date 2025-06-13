@@ -1,17 +1,19 @@
 import numpy as np
-from .base_equation import EquationSystem
+from .src.equation.base_equation import EquationSystem
+
 
 class AdvectionEquation(EquationSystem):
     """
     1D Linear Advection Equation: u_t + a u_x = 0
     Primitive and conservative variables are the same: [u].
     """
+
     def __init__(self, advection_speed: float = 1.0):
         super().__init__(min_value=1e-10)
         self.a = advection_speed
         self.vel_idx = 0
         self.monitor_idx = 0
-        self.var_names = ['u']
+        self.var_names = ["u"]
         self.num_vars = 1
         self.safety_guard_var_idx = []
 
