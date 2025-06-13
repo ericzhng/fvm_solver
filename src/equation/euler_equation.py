@@ -16,11 +16,9 @@ class EulerEquation(EquationSystem):
         """
         super().__init__(min_value=1e-10)
         self.gamma = gamma
+        self.var_names = ["density", "velocity", "pressure"]
+        self.num_vars = len(self.var_names)
         self.vel_idx = 1
-        self.monitor_idx = 0
-        self.var_names = ['density', 'velocity', 'pressure']
-        self.num_vars = 3
-        self.safety_guard_var_idx = [0, 2]  # density and pressure
 
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """Convert primitive variables to conservative variables.
@@ -57,7 +55,7 @@ class EulerEquation(EquationSystem):
         p = np.maximum(p, self.min_value)
         return np.array([rho, u, p])
 
-    def sound_speed(self, W: np.ndarray) -> float:
+    def sound_speed(self, U: np.ndarray) -> float:
         """Compute the sound speed for the gas.
 
         Args:
@@ -66,14 +64,16 @@ class EulerEquation(EquationSystem):
         Returns:
             float: Sound speed (sqrt(gamma * p / rho))
         """
-        if W.shape != (self.num_vars,):
-            raise ValueError(f"W must have shape ({self.num_vars},)")
-        rho, _, p = W
+        if U.shape != (self.num_vars,):
+            raise ValueError(f"U must have shape ({self.num_vars},)")
+        rho, m, E = U
         rho = np.maximum(rho, self.min_value)
+        u = m / rho
+        p = (E - 0.5 * rho * u**2) * (self.gamma - 1)
         p = np.maximum(p, self.min_value)
         return np.sqrt(self.gamma * p / rho)
 
-    def compute_flux(self, U: np.ndarray, W: np.ndarray) -> np.ndarray:
+    def compute_flux(self, U: np.ndarray) -> np.ndarray:
         """Compute the physical flux.
 
         Args:
@@ -83,139 +83,345 @@ class EulerEquation(EquationSystem):
         Returns:
             np.ndarray: [rho*u, rho*u^2 + p, u*(E + p)]
         """
-        if U.shape != (self.num_vars,) or W.shape != (self.num_vars,):
-            raise ValueError(f"U and W must have shape ({self.num_vars},)")
-        rho, u, p = W
-        E = U[2]
+        if U.shape != (self.num_vars,):
+            raise ValueError(f"U must have shape ({self.num_vars},)")
+
+        rho, m, E = U
+        rho = np.maximum(rho, self.min_value)
+        u = m / rho
+        p = (E - 0.5 * rho * u**2) * (self.gamma - 1)
+        p = np.maximum(p, self.min_value)
+
         return np.array([rho * u, rho * u**2 + p, u * (E + p)])
 
-    def hllc_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        """Compute HLLC numerical flux for Euler equations.
-
-        Args:
-            WL (np.ndarray): Left primitive state [density, velocity, pressure]
-            WR (np.ndarray): Right primitive state [density, velocity, pressure]
-            UL (np.ndarray): Left conservative state [density, momentum, energy]
-            UR (np.ndarray): Right conservative state [density, momentum, energy]
-
-        Returns:
-            np.ndarray: HLLC numerical flux
-        """
-        if any(arr.shape != (self.num_vars,) for arr in [WL, WR, UL, UR]):
-            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
-
-        # Extract and ensure positivity
-        rhoL, uL, pL = WL
-        rhoR, uR, pR = WR
-        rhoL = np.maximum(rhoL, self.min_value)
-        rhoR = np.maximum(rhoR, self.min_value)
-        pL = np.maximum(pL, self.min_value)
-        pR = np.maximum(pR, self.min_value)
-
-        # Wave speeds
-        cL = np.sqrt(self.gamma * pL / rhoL)
-        cR = np.sqrt(self.gamma * pR / rhoR)
-        S_L = min(uL - cL, uR - cR)
-        S_R = max(uL + cL, uR + cR)
-        denom = rhoL * (S_L - uL) - rhoR * (S_R - uR)
-        if abs(denom) < self.min_value:
-            S_star = 0.5 * (uL + uR)
-        else:
-            S_star = (pR - pL + rhoL * uL * (S_L - uL) - rhoR * uR * (S_R - uR)) / denom
-
-        # Intermediate states
-        rhoL_star = max(rhoL * (S_L - uL) / (S_L - S_star + self.min_value), self.min_value)
-        rhoR_star = max(rhoR * (S_R - uR) / (S_R - S_star + self.min_value), self.min_value)
-        EL = UL[2] / (rhoL + self.min_value) + (S_star - uL) * (
-            S_star + pL / (rhoL * (S_L - uL) + self.min_value))
-        ER = UR[2] / (rhoR + self.min_value) + (S_star - uR) * (
-            S_star + pR / (rhoR * (S_R - uR) + self.min_value))
-        UL_star = np.array([rhoL_star, rhoL_star * S_star, rhoL_star * EL])
-        UR_star = np.array([rhoR_star, rhoR_star * S_star, rhoR_star * ER])
-
-        # Fluxes
-        FL = self.compute_flux(UL, WL)
-        FR = self.compute_flux(UR, WR)
-        if S_L >= 0:
-            F = FL
-        elif S_L <= 0 <= S_star:
-            F = FL + S_L * (UL_star - UL)
-        elif S_star <= 0 <= S_R:
-            F = FR + S_R * (UR_star - UR)
-        else:
-            F = FR
-
-        return F
-
-    def roe_numerical_flux(self, WL: np.ndarray, WR: np.ndarray, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
+    def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> tuple:
         """Compute the Roe numerical flux for the shallow water equations, with entropy fix.
 
         Args:
-            WL (np.ndarray): Left primitive state [density, velocity, pressure]
-            WR (np.ndarray): Right primitive state [density, velocity, pressure]
-            UL (np.ndarray): Left conservative state [density, momentum, energy]
-            UR (np.ndarray): Right conservative state [density, momentum, energy]
+            U_L (np.ndarray): Left conservative state [density, momentum, energy]
+            U_R (np.ndarray): Right conservative state [density, momentum, energy]
 
         Returns:
             np.ndarray: Roe numerical flux
         """
-        if any(arr.shape != (self.num_vars,) for arr in [WL, WR, UL, UR]):
+        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
 
-        # Extract left and right states
-        rhoL, uL, pL = WL
-        rhoR, uR, pR = WR
-        rhoL = np.maximum(rhoL, self.min_value)
-        rhoR = np.maximum(rhoR, self.min_value)
-        pL = np.maximum(pL, self.min_value)
-        pR = np.maximum(pR, self.min_value)
+        # left state
+        rhoL, uL, pL = self.to_primitive(U_L)
+        EL = U_L[2]
+
+        # right state
+        rhoR, uR, pR = self.to_primitive(U_R)
+        ER = U_R[2]
 
         # Compute enthalpy
-        EL = UL[2]
-        ER = UR[2]
         hL = (EL + pL) / rhoL
         hR = (ER + pR) / rhoR
 
         # Roe averages
         sqrt_rhoL = np.sqrt(rhoL)
         sqrt_rhoR = np.sqrt(rhoR)
-        denom = sqrt_rhoL + sqrt_rhoR + self.min_value
-        u_roe = (uL * sqrt_rhoL + uR * sqrt_rhoR) / denom
-        h_roe = (hL * sqrt_rhoL + hR * sqrt_rhoR) / denom
-        c2_roe = (self.gamma - 1) * (h_roe - 0.5 * u_roe**2)
-        c2_roe = np.maximum(c2_roe, self.min_value)
-        c_roe = np.sqrt(c2_roe)
+        u_roe = (uL * sqrt_rhoL + uR * sqrt_rhoR) / np.maximum(
+            sqrt_rhoL + sqrt_rhoR, self.min_value
+        )
+        h_roe = (hL * sqrt_rhoL + hR * sqrt_rhoR) / np.maximum(
+            sqrt_rhoL + sqrt_rhoR, self.min_value
+        )
+        a2 = (self.gamma - 1) * (h_roe - 0.5 * u_roe**2)
+        a2 = np.maximum(a2, self.min_value)
+        a_roe = np.sqrt(a2)
 
-        # Eigenvalues
-        lambda_1 = u_roe - c_roe
-        lambda_2 = u_roe
-        lambda_3 = u_roe + c_roe
-        lambdas = np.array(np.abs([lambda_1, lambda_2, lambda_3]))
+        return a_roe, u_roe
 
-        # Improved entropy fix (Harten-Hyman)
-        delta = 0.1 * c_roe
-        lambdas_mod = np.zeros_like(lambdas)
-        for i in range(3):
-            if lambdas_mod[i] < delta:
-                lambdas_mod[i] = 0.5 * (lambdas[i] + np.sqrt(lambdas[i]**2 + delta**2))
-                # abs_lambdas[i] = 0.5 * (lambdas[i]**2 / delta + delta)
-        
-        # Differences in primitive variables.
-        delta_W = WR - WL
+    # ---------------------------------------------------- #
+    # flux methods that has to be defined per equation wise
+    # ---------------------------------------------------- #
 
-        # Compute wave strengths (alpha) using conservative variable jumps
-        delta_r = delta_W[0]
-        delta_u = delta_W[1]
-        delta_p = delta_W[2]
+    def ausm_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """Compute the physical flux.
 
-        alpha_2 = -((delta_p / (c2_roe + self.min_value)) - delta_r)
-        RT = sqrt_rhoR / sqrt_rhoL
-        r = RT * rhoL
-        alpha_1 = (delta_p - r * c_roe * delta_u) / (2 * c2_roe + self.min_value)
-        alpha_3 = (delta_p + r * c_roe * delta_u) / (2 * c2_roe + self.min_value)
+        Args:
+            U_L (np.ndarray): Left conservative state [density, momentum, energy]
+            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+
+        Returns:
+            np.ndarray: AUSM numerical flux
+        """
+        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
+
+        # left state
+        rhoL, uL, pL = self.to_primitive(U_L)
+        EL = U_L[2]
+        aL = np.sqrt(self.gamma * pL / rhoL)
+        ML = uL / aL  # Mach
+        HL = (EL + pL) / rhoL  # enthalpy
+
+        # right state
+        rhoR, uR, pR = self.to_primitive(U_R)
+        ER = U_R[2]
+        aR = np.sqrt(self.gamma * pR / rhoR)
+        MR = uR / aR
+        HR = (ER + pR) / rhoR
+
+        # Positive M and p in the LEFT cell
+        if ML <= -1:
+            Mp = 0
+            Pp = 0
+        elif ML < 1:
+            Mp = ((ML + 1) ** 2) / 4
+            Pp = pL * ((1 + ML) ** 2) * (2 - ML) / 4  # or Pp = (1 + ML) * pL / 2
+        else:
+            Mp = ML
+            Pp = pL
+
+        # Negative M and p in the RIGHT cell
+        if MR <= -1:
+            Mm = MR
+            Pm = pR
+        elif MR < 1:
+            Mm = -((MR - 1) ** 2) / 4
+            Pm = pR * ((1 - MR) ** 2) * (2 + MR) / 4  # or Pm = (1 - MR) * pR / 2
+        else:
+            Mm = 0
+            Pm = 0
+
+        # Positive Part of Flux evaluated in the left cell
+        MpMm = Mp + Mm
+        Fp = np.zeros(3)
+        Fp[0] = max(0, MpMm) * aL * rhoL
+        Fp[1] = max(0, MpMm) * aL * rhoL * uL + Pp
+        Fp[2] = max(0, MpMm) * aL * rhoL * HL
+
+        # Negative Part of Flux evaluated in the right cell
+        Fm = np.zeros(3)
+        Fm[0] = min(0, MpMm) * aR * rhoR
+        Fm[1] = min(0, MpMm) * aR * rhoR * uR + Pm
+        Fm[2] = min(0, MpMm) * aR * rhoR * HR
+
+        return Fp + Fm
+
+    def hllc_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """Compute HLLC numerical flux for Euler equations.
+
+        Args:
+            U_L (np.ndarray): Left conservative state [density, momentum, energy]
+            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+
+        Returns:
+            np.ndarray: HLLC numerical flux
+        """
+        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
+
+        # left state
+        rhoL, uL, pL = self.to_primitive(U_L)
+        EL = U_L[2]
+        aL = np.sqrt(self.gamma * pL / rhoL)
+
+        # right state
+        rhoR, uR, pR = self.to_primitive(U_R)
+        ER = U_R[2]
+        aR = np.sqrt(self.gamma * pR / rhoR)
+
+        # Left and Right fluxes
+        FL = self.compute_flux(U_L)
+        FR = self.compute_flux(U_R)
+
+        # Compute guess pressure from PVRS Riemann solver
+        PPV = max(
+            0, 0.5 * (pL + pR) + 0.5 * (uL - uR) * (0.25 * (rhoL + rhoR) * (aL + aR))
+        )
+        pmin = min(pL, pR)
+        pmax = max(pL, pR)
+        Qmax = pmax / pmin
+        Quser = 2.0  # parameter manually set
+
+        if (Qmax <= Quser) and (pmin <= PPV) and (PPV <= pmax):
+            # Select PRVS Riemann solver
+            pM = PPV
+            # uM = 0.5 * (uL + uR) + 0.5 * (pL - pR) / CUP
+        else:
+            if PPV < pmin:
+                # Select Two-Rarefaction Riemann solver
+                PQ = (pL / pR) ** ((self.gamma - 1.0) / (2.0 * self.gamma))
+                uM = (PQ * uL / aL + uR / aR + 2 / (self.gamma - 1) * (PQ - 1.0)) / (
+                    PQ / aL + 1.0 / aR
+                )
+                PTL = 1 + (self.gamma - 1) / 2.0 * (uL - uM) / aL
+                PTR = 1 + (self.gamma - 1) / 2.0 * (uM - uR) / aR
+                pM = 0.5 * (
+                    pL * PTL ** (2 * self.gamma / (self.gamma - 1))
+                    + pR * PTR ** (2 * self.gamma / (self.gamma - 1))
+                )
+            else:
+                # Use Two-Shock Riemann solver with PVRS as estimate
+                GEL = np.sqrt(
+                    (2 / (self.gamma + 1) / rhoL)
+                    / ((self.gamma - 1) / (self.gamma + 1) * pL + PPV)
+                )
+                GER = np.sqrt(
+                    (2 / (self.gamma + 1) / rhoR)
+                    / ((self.gamma - 1) / (self.gamma + 1) * pR + PPV)
+                )
+                pM = (GEL * pL + GER * pR - (uR - uL)) / (GEL + GER)
+                # uM = 0.5 * (uL + uR) + 0.5 * (GER * (pM - pR) - GEL * (pM - pL))
+
+        # Estimate wave speeds: SL, SR and SM (Toro, 1994)
+        zL = (
+            np.sqrt(1 + (self.gamma + 1) / (2 * self.gamma) * (pM / pL - 1))
+            if pM > pL
+            else 1
+        )
+        zR = (
+            np.sqrt(1 + (self.gamma + 1) / (2 * self.gamma) * (pM / pR - 1))
+            if pM > pR
+            else 1
+        )
+
+        SL = uL - aL * zL
+        SR = uR + aR * zR
+        SM = (pL - pR + rhoR * uR * (SR - uR) - rhoL * uL * (SL - uL)) / (
+            rhoR * (SR - uR) - rhoL * (SL - uL)
+        )
+
+        # Compute the HLL flux.
+        if 0 <= SL:
+            HLLC = FL
+        elif SL <= 0 <= SM:
+            qsL = (
+                rhoL
+                * (SL - uL)
+                / (SL - SM)
+                * np.array(
+                    [1, SM, EL / rhoL + (SM - uL) * (SM + pL / (rhoL * (SL - uL)))]
+                )
+            )
+            HLLC = FL + SL * (qsL - U_L)
+        elif SM <= 0 <= SR:
+            qsR = (
+                rhoR
+                * (SR - uR)
+                / (SR - SM)
+                * np.array(
+                    [1, SM, ER / rhoR + (SM - uR) * (SM + pR / (rhoR * (SR - uR)))]
+                )
+            )
+            HLLC = FR + SR * (qsR - U_R)
+        elif 0 >= SR:
+            HLLC = FR
+
+        return HLLC
+
+    def hlle_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """Compute the physical flux.
+
+        Args:
+            U_L (np.ndarray): Left conservative state [density, momentum, energy]
+            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+
+        Returns:
+            np.ndarray: AUSM numerical flux
+        """
+        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
+
+        # left state
+        rhoL, uL, pL = self.to_primitive(U_L)
+        EL = U_L[2]
+        aL = np.sqrt(self.gamma * pL / rhoL)
+        HL = (EL + pL) / rhoL  # enthalpy
+
+        # right state
+        rhoR, uR, pR = self.to_primitive(U_R)
+        ER = U_R[2]
+        aR = np.sqrt(self.gamma * pR / rhoR)
+        HR = (ER + pR) / rhoR
+
+        # Roe averages
+        sqrt_rhoL = np.sqrt(rhoL)
+        sqrt_rhoR = np.sqrt(rhoR)
+        u_roe = (uL * sqrt_rhoL + uR * sqrt_rhoR) / np.maximum(
+            sqrt_rhoL + sqrt_rhoR, self.min_value
+        )
+        H_roe = (HL * sqrt_rhoL + HR * sqrt_rhoR) / np.maximum(
+            sqrt_rhoL + sqrt_rhoR, self.min_value
+        )
+        a2 = (self.gamma - 1) * (H_roe - 0.5 * u_roe**2)
+        a2 = np.maximum(a2, self.min_value)
+        a_roe = np.sqrt(a2)
+
+        # Left and Right fluxes
+        FL = self.compute_flux(U_L)
+        FR = self.compute_flux(U_R)
+
+        # Wave speed estimates
+        SLm = min(uL - aL, u_roe - a_roe)
+        SRp = max(uR + aR, u_roe + a_roe)
+
+        # Compute the HLL flux
+        if SLm >= 0:  # Right-going supersonic flow
+            HLLE = FL
+        elif SLm <= 0 <= SRp:  # Subsonic flow
+            select = 1
+            if select == 1:
+                # True HLLE function
+                HLLE = (SRp * FL - SLm * FR + SLm * SRp * (U_R - U_L)) / (SRp - SLm)
+            elif select == 2:
+                # Rusanov flux (as suggested by Toro's book)
+                smax = max(abs(SLm), abs(SRp))
+                HLLE = (FR + FL + smax * (U_L - U_R)) / 2.0
+        elif SRp <= 0:  # Left-going supersonic flow
+            HLLE = FR
+
+        return HLLE
+
+    def roe_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """Compute the Roe numerical flux for the shallow water equations, with entropy fix.
+
+        Args:
+            U_L (np.ndarray): Left conservative state [density, momentum, energy]
+            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+
+        Returns:
+            np.ndarray: Roe numerical flux
+        """
+        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
+
+        # left state
+        rhoL, uL, pL = self.to_primitive(U_L)
+        EL = U_L[2]
+        aL = np.sqrt(self.gamma * pL / rhoL)
+        HL = (EL + pL) / rhoL  # enthalpy
+
+        # right state
+        rhoR, uR, pR = self.to_primitive(U_R)
+        ER = U_R[2]
+        aR = np.sqrt(self.gamma * pR / rhoR)
+        HR = (ER + pR) / rhoR
+
+        # Roe averages
+        sqrt_rhoL = np.sqrt(rhoL)
+        sqrt_rhoR = np.sqrt(rhoR)
+        rho_roe = np.sqrt(rhoL * rhoR)
+        u_roe = (uL * sqrt_rhoL + uR * sqrt_rhoR) / np.maximum(
+            sqrt_rhoL + sqrt_rhoR, self.min_value
+        )
+        H_roe = (HL * sqrt_rhoL + HR * sqrt_rhoR) / np.maximum(
+            sqrt_rhoL + sqrt_rhoR, self.min_value
+        )
+        a2 = (self.gamma - 1) * (H_roe - 0.5 * u_roe**2)
+        a2 = np.maximum(a2, self.min_value)
+        a_roe = np.sqrt(a2)
+
+        # Left and Right fluxes
+        FL = self.compute_flux(U_L)
+        FR = self.compute_flux(U_R)
 
         # # Differences in primitive variables.
-        # delta_U = UR - UL
+        # delta_U = U_R - U_L
 
         # # Compute wave strengths (alpha) using conservative variable jumps
         # delta_rho = delta_U[0]
@@ -227,37 +433,42 @@ class EulerEquation(EquationSystem):
         # alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_value)
         # alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_value)
 
-        # Roe eigenvectors
-        r1 = np.array([1, u_roe - c_roe, h_roe - u_roe * c_roe])
-        r2 = np.array([1, u_roe, 0.5 * u_roe**2])
-        r3 = np.array([1, u_roe + c_roe, h_roe + u_roe * c_roe])
+        # Differences in primitive variables
+        dr = rhoR - rhoL
+        du = uR - uL
+        dP = pR - pL
 
-        # |A| * delta_U
-        dissipative_term = lambdas_mod[0] * alpha_1 * r1 + lambdas_mod[1] * alpha_2 * r2 + lambdas_mod[2] * alpha_3 * r3
+        # Wave strength (Characteristic Variables)
+        dV = np.array(
+            [
+                (dP - rho_roe * a_roe * du) / (2 * a_roe**2),
+                -(dP / (a_roe**2) - dr),
+                (dP + rho_roe * a_roe * du) / (2 * a_roe**2),
+            ]
+        )
 
-        # Physical fluxes
-        FL = self.compute_flux(UL, WL)
-        FR = self.compute_flux(UR, WR)
+        # Absolute values of the wave speeds (Eigenvalues)
+        ws = np.array([abs(u_roe - a_roe), abs(u_roe), abs(u_roe + a_roe)])
 
-        # Roe flux
-        F = 0.5 * (FL + FR) - 0.5 * dissipative_term
+        # Harten's Entropy Fix JCP(1983), 49, pp357-393
+        Da = max(0, 4 * ((uR - aR) - (uL - aL)))
+        if ws[0] < Da / 2 and Da != 0:
+            ws[0] = ws[0] ** 2 / Da + Da / 4
 
-        # Pressure jump detector
-        pL, pR = WL[2], WR[2]
-        pressure_jump = max(pL, pR) / (min(pL, pR) + self.min_value)
-        if pressure_jump > 2.0:
-            # Fallback to Rusanov flux for this interface
-            FL_rusanov = FL
-            FR_rusanov = FR
-            lambda_local = max(
-                abs(WL[self.vel_idx]) + self.sound_speed(WL),
-                abs(WR[self.vel_idx]) + self.sound_speed(WR)
-            )
-            F = 0.5 * (FL_rusanov + FR_rusanov - lambda_local * (UR - UL))
-        
-        # Optionally, add a small artificial viscosity term
-        shock_indicator = abs(pR - pL) / (pR + pL + self.min_value)
-        if shock_indicator > 0.2:  # tune threshold as needed
-            F += 0.2 * (UR - UL)  # add small viscosity
-            
-        return F
+        Da = max(0, 4 * ((uR + aR) - (uL + aL)))
+        if ws[2] < Da / 2 and Da != 0:
+            ws[2] = ws[2] ** 2 / Da + Da / 4
+
+        # Right eigenvectors
+        R = np.array(
+            [
+                [1, 1, 1],
+                [u_roe - a_roe, u_roe, u_roe + a_roe],
+                [H_roe - u_roe * a_roe, u_roe**2 / 2, H_roe + u_roe * a_roe],
+            ]
+        )
+
+        # Add the matrix dissipation term to complete the Roe flux
+        Roe = (FL + FR - R @ (ws * dV)) / 2
+
+        return Roe
