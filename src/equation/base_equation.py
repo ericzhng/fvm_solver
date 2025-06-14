@@ -92,12 +92,12 @@ class EquationSystem:
         return np.stack([self.to_primitive(U[:, i]) for i in range(U.shape[1])], axis=1)
 
     @abstractmethod
-    def sound_speed(self, W: np.ndarray) -> float:
+    def sound_speed(self, U: np.ndarray) -> float:
         """
         Compute the sound speed for the given primitive state.
 
         Args:
-            W (np.ndarray): Primitive variables, shape (num_vars,).
+            U (np.ndarray): Conservative variables, shape (num_vars,).
 
         Returns:
             float: Sound speed for the given state.

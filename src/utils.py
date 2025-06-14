@@ -1,38 +1,91 @@
 import numpy as np
 import xml.etree.ElementTree as ET
 from typing import Any, Callable, Dict, List, Tuple, Union, Optional
+import matplotlib.pyplot as plt
+
+import numpy as np
 
 
 def create_grid(
-    xmin: float, xmax: float, nx: int, stretch_factor: float = 1.0, dim: int = 1
+    xmin: float, xmax: float, nx: int, grading: float = 1.0, edge_grading: bool = True
 ) -> np.ndarray:
     """
-    Generate a non-uniform grid for 1D domains.
+    Generate a 1D grid mimicking OpenFOAM blockMesh with grading control.
 
     Args:
         xmin: Minimum coordinate.
         xmax: Maximum coordinate.
-        nx: Number of grid points.
-        stretch_factor: Grid stretching factor (currently linear).
-        dim: Dimension of the grid (only 1D supported).
-
+        nx: Number of cells.
+        grading: Cell size ratio. >1: finer at max, <1: finer at min, =1: uniform.
+        edge_grading: True for grading towards edges, False for center grading.
     Returns:
-        np.ndarray: Grid coordinates.
-
-    Raises:
-        ValueError: If dimension is not 1.
+        np.ndarray: Grid node coordinates (nx+1,)
     """
-    if dim != 1:
-        raise ValueError("Only 1D grids are supported currently.")
+    L = xmax - xmin
+    if grading == 1.0 or nx == 1:
+        return np.linspace(xmin, xmax, nx + 1)
 
-    x = np.zeros(nx + 1)
+    if edge_grading:
+        # Grading towards edges (OpenFOAM-like)
+        if grading < 1.0:
+            grading = 1.0 / grading  # Invert for consistency
+            reverse = True
+        else:
+            reverse = False
 
-    for i in range(nx + 1):
-        # dx = (1 - np.cos(np.pi * i / nx)) / 2
-        dx = i / nx
-        x[i] = xmin + (xmax - xmin) * dx * stretch_factor
+        # Geometric progression sum for cell sizes
+        r = grading ** (1.0 / (nx - 1))
+        denom = (1.0 - r**nx) / (1.0 - r) if r != 1.0 else float(nx)
+        dx0 = L / denom
 
-    return x
+        points = [0.0]
+        for i in range(nx):
+            points.append(points[-1] + dx0 * (r**i))
+
+        mesh = np.array(points)
+        if reverse:
+            mesh = L - mesh[::-1]
+    else:
+        # Grading towards center
+        n_half = nx // 2
+        r = grading if grading >= 1.0 else 1.0 / grading
+        dx0 = (L / 2) / sum(r**i for i in range(n_half))
+
+        left = [0.0]
+        for i in range(n_half):
+            left.append(left[-1] + dx0 * (r**i))
+
+        if nx % 2 == 0:
+            right = left[::-1]
+            mesh = np.array(left[:-1] + right)
+        else:
+            right = [left[-1]]
+            for i in range(n_half):
+                right.append(right[-1] + dx0 * (r ** (n_half - 1 - i)))
+            mesh = np.array(left + right[1:])
+
+    # Scale and shift
+    mesh = xmin + (mesh / mesh[-1]) * L
+    return mesh
+
+
+def plot_1d_mesh(mesh_nodes):
+    """
+    Plot the 1D mesh nodes as vertical lines.
+    Args:
+        mesh_nodes: np.ndarray of mesh node coordinates
+    """
+    x_min, x_max = np.min(mesh_nodes), np.max(mesh_nodes)
+    x_margin = 0.02 * (x_max - x_min)
+
+    for x in mesh_nodes:
+        plt.axvline(x, color="b", linestyle="-", linewidth=0.8)
+
+    plt.xlim(x_min - x_margin, x_max + x_margin)
+    plt.ylim(-0.05, 1.05)
+    plt.xlabel("x")
+    plt.title("1D Mesh")
+    plt.show()
 
 
 def get_text(
@@ -143,7 +196,7 @@ def parse_xml_config(filename: str) -> Dict[str, Any]:
     ic_left_elem = root.find("initial_conditions/left")
     ic_right_elem = root.find("initial_conditions/right")
     ic_split_elem = root.find("initial_conditions/split")
-    config["initial_conditions"] = {
+    config["ic"] = {
         "left": parse_values_list(ic_left_elem),
         "right": parse_values_list(ic_right_elem),
         "split": (
@@ -205,7 +258,9 @@ def read_solution(filename: str) -> List[Tuple[float, np.ndarray, np.ndarray]]:
                 continue
             i += 2  # Skip header
             x_list, w_list = [], []
-            while i < len(lines) and not lines[i].startswith("#"):
+            if not lines[i].strip():
+                i += 1
+            while i < len(lines) and not lines[i].startswith("#") and lines[i].strip():
                 vals = [float(v) for v in lines[i].split()]
                 x_list.append(vals[0])
                 w_list.append(vals[1:] if len(vals) > 2 else vals[1])

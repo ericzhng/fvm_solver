@@ -178,7 +178,7 @@ class Solver:
         for i in range(self.n_ghost, self.n_cells + self.n_ghost):
             value = dx[i] / max(
                 abs(W_aug[self.eqn_obj.vel_idx, i])
-                + self.eqn_obj.sound_speed(W_aug[:, i]),
+                + self.eqn_obj.sound_speed(U_aug[:, i]),
                 self.eqn_obj.min_value,
             )
             min_value = min(min_value, value)

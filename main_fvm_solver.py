@@ -1,13 +1,13 @@
 import argparse
 import numpy as np
 
-from src.utils import parse_xml_config, create_grid
+from src.utils import parse_xml_config, create_grid, plot_1d_mesh
 
 from src.boundary import BoundaryCondition
 
-# from advection_equation import AdvectionEquation
-# from src.equation.isentropic_gas_equation import IsentropicGas
-# from src.equation.shallow_water_equation import ShallowWater
+from src.equation.advection_equation import AdvectionEquation
+from src.equation.isentropic_gas_equation import IsentropicGas
+from src.equation.shallow_water_equation import ShallowWater
 from src.equation.euler_equation import EulerEquation
 
 from src.solver import Solver
@@ -27,7 +27,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="config_euler_sod_shock_tube.xml",
+        default="config_shallow_water_dam_break.xml",
         help="Path to XML configuration file",
     )
     args = parser.parse_args()
@@ -51,11 +51,11 @@ def main():
     # Select equation system
     equation_dict = {
         "euler": EulerEquation(gamma=config["gamma"]),
-        # "isentropic": IsentropicGas(gamma=config["gamma"], k=config["k"]),
-        # "shallow_water": ShallowWater(gravity=9.81),
-        # "advection": AdvectionEquation(
-        #     advection_speed=float(config.get("advection_speed", 1.0))
-        # ),
+        "advection": AdvectionEquation(
+            advection_speed=float(config.get("advection_speed", 1.0))
+        ),
+        "isentropic": IsentropicGas(gamma=config["gamma"], k=config["k"]),
+        "shallow_water": ShallowWater(gravity=9.81),
     }
     equation = equation_dict[config["equation"]]
 
@@ -65,8 +65,8 @@ def main():
         config["xmax"],
         config["nx"],
         config["stretch_factor"],
-        config["dimension"],
     )
+    # plot_1d_mesh(mesh_grid)
 
     # Set up boundary conditions
     bc_inst = BoundaryCondition(
@@ -91,13 +91,10 @@ def main():
     n_vars = len(equation.get_var_names())
     W0 = np.zeros((n_vars, config["nx"]), dtype=float)
 
-    split_idx = int(config["nx"] * config["initial_conditions"]["split"])
-    W0[:, :split_idx] = np.array(config["initial_conditions"]["left"], dtype=float)[
-        :, np.newaxis
-    ]
-    W0[:, split_idx:] = np.array(config["initial_conditions"]["right"], dtype=float)[
-        :, np.newaxis
-    ]
+    # Find the index where mesh_grid is closest to x=0.5
+    split_idx = np.argmin(np.abs(mesh_grid - config["ic"]["split"]))
+    W0[:, :split_idx] = np.array(config["ic"]["left"], dtype=float)[:, np.newaxis]
+    W0[:, split_idx:] = np.array(config["ic"]["right"], dtype=float)[:, np.newaxis]
 
     # Initialize solver
     solver_inst = Solver(
