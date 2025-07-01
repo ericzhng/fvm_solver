@@ -10,8 +10,9 @@
             "request": "launch",
             "program": "${file}",
             "args": [
-                "--config", "config_euler_sod_shock_tube.xml"
-                ],
+                "--config",
+                "config_isentropic_density_jump.xml"
+            ],
             "console": "integratedTerminal"
         }
     ]

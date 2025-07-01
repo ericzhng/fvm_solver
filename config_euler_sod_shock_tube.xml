@@ -8,8 +8,8 @@
         </domain>
     </geometry>
     <mesh>
-        <nx>100</nx>
-        <stretch_factor>1.0</stretch_factor>
+        <nx>200</nx>
+        <stretch_factor>7</stretch_factor>
     </mesh>
     <equation>
         <type>euler</type>
@@ -43,13 +43,13 @@
     </initial_conditions>
     <solver_settings>
         <time_integration>euler</time_integration>
-        <ghost_cells>2</ghost_cells>
+        <ghost_cells>1</ghost_cells>
         <T>0.1</T>
-        <cfl>0.4</cfl>
+        <cfl>0.5</cfl>
         <flux>roe</flux>
         <reconstruction>muscl</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>
-        <limiter>minmod</limiter>
+        <limiter>vanleer</limiter>
         <max_iterations>10000</max_iterations>
         <convergence_tolerance>1e-6</convergence_tolerance>
     </solver_settings>

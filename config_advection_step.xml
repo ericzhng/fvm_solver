@@ -35,11 +35,11 @@
     </initial_conditions>
     <solver_settings>
         <time_integration>euler</time_integration>
-        <ghost_cells>2</ghost_cells>
+        <ghost_cells>12</ghost_cells>
         <T>0.5</T>
-        <cfl>0.2</cfl>
+        <cfl>0.5</cfl>
         <flux>hllc</flux>
-        <reconstruction>ppm</reconstruction>
+        <reconstruction>muscl</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>
         <limiter>superbee</limiter>
         <max_iterations>10000</max_iterations>

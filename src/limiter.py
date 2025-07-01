@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Optional
 
 
 class Limiter:
@@ -16,7 +17,7 @@ class Limiter:
         ValueError: If limiter_type is invalid or beta is out of [1, 2].
     """
 
-    def __init__(self, limiter_type: str = 'minmod', beta: float = 1.5):
+    def __init__(self, str_limiter: str = "minmod", beta: float = 1.5):
         """Initialize the limiter.
 
         Args:
@@ -26,23 +27,27 @@ class Limiter:
         Raises:
             ValueError: If limiter_type is unsupported or beta is out of range [1, 2].
         """
-        self.limiter_type = limiter_type.lower()
+        self.name = str_limiter.lower()
         self.beta = max(1.0, min(2.0, beta))  # Ensure beta in [1, 2]
-        self.limiters = {
-            'minmod': self.minmod,
-            'superbee': self.superbee,
-            'vanleer': self.van_leer,
-            'mc': self.mc,
-            'koren': self.koren,
-            'osher': lambda a, b: self.osher(a, b, self.beta),
-            'sweby': lambda a, b: self.sweby(a, b, self.beta),
-            'umist': self.umist,
-            'none': self.no_limiter
-        }
-        if self.limiter_type not in self.limiters:
-            raise ValueError(f"Unsupported limiter: {self.limiter_type}. Choose from {list(self.limiters.keys())}")
 
-    def limit(self, a: np.ndarray, b: np.ndarray, c: np.ndarray = None) -> np.ndarray:
+        self.limiters = {
+            "minmod": self.minmod,
+            "superbee": self.superbee,
+            "vanleer": self.van_leer,
+            "mc": self.mc,
+            "koren": self.koren,
+            "osher": lambda a, b: self.osher(a, b, self.beta),
+            "sweby": lambda a, b: self.sweby(a, b, self.beta),
+            "umist": self.umist,
+            "none": self.no_limiter,
+        }
+
+        if self.name not in self.limiters.keys():
+            raise ValueError(
+                f"Unsupported limiter: {self.name}. Choose from {list(self.limiters.keys())}"
+            )
+
+    def limiter_func(self, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
         """
         Apply the selected limiter to two slope arrays.
 
@@ -54,10 +59,10 @@ class Limiter:
             np.ndarray: Limited slope, same shape as input.
         """
         # Vectorized application of limiter
-        if self.limiter_type == 'mc':
-            ret = np.vectorize(self.limiters[self.limiter_type], otypes=[float])(a, b, c)
+        if self.name == "mc":
+            ret = np.vectorize(self.limiters[self.name], otypes=[float])(a, b, c)
         else:
-            ret = np.vectorize(self.limiters[self.limiter_type], otypes=[float])(a, b)
+            ret = np.vectorize(self.limiters[self.name], otypes=[float])(a, b)
         return ret
 
     def minmod(self, a: float, b: float) -> float:
@@ -88,7 +93,11 @@ class Limiter:
         Returns:
             float: Limited slope.
         """
-        return np.sign(a) * max(min(2 * abs(a), abs(b)), min(abs(a), 2 * abs(b))) if a * b > 0 else 0.0
+        return (
+            np.sign(a) * max(min(2 * abs(a), abs(b)), min(abs(a), 2 * abs(b)))
+            if a * b > 0
+            else 0.0
+        )
 
     def van_leer(self, a: float, b: float) -> float:
         """
@@ -180,7 +189,11 @@ class Limiter:
         Returns:
             float: Limited slope.
         """
-        return max(0, min(2 * a, (a + 3 * b) / 4, (3 * a + b) / 4, 2 * b)) if a * b > 0 else 0.0
+        return (
+            max(0, min(2 * a, (a + 3 * b) / 4, (3 * a + b) / 4, 2 * b))
+            if a * b > 0
+            else 0.0
+        )
 
     def no_limiter(self, a: float, b: float) -> float:
         """
