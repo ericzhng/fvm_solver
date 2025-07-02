@@ -1,0 +1,210 @@
+% Setting up document class and essential packages
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{parskip}
+
+% Configuring fonts (loaded last)
+\usepackage{noto}
+
+\begin{document}
+
+\section*{Derivation of Roe Flux for 1D Hyperbolic Conservation Laws}
+
+The Roe flux for a general 1D hyperbolic conservation law \(\mathbf{u}_t + \mathbf{f}(\mathbf{u})_x = 0\) is:
+\[
+\mathbf{F}_{i+1/2} = \frac{1}{2} \left( \mathbf{f}(\mathbf{u}_L) + \mathbf{f}(\mathbf{u}_R) \right) - \frac{1}{2} \sum_{k=1}^m |\tilde{\lambda}_k| \tilde{\alpha}_k \tilde{\mathbf{r}}_k
+\]
+where \(\mathbf{u}_L, \mathbf{u}_R\) are left and right states, \(\tilde{\lambda}_k\), \(\tilde{\alpha}_k\), \(\tilde{\mathbf{r}}_k\) are Roe-averaged eigenvalues, wave strengths, and eigenvectors.
+
+\subsection*{1. Burgers' Equation}
+\textbf{Equation}: \( u_t + \left( \frac{u^2}{2} \right)_x = 0 \).
+
+\begin{enumerate}
+    \item \textbf{Flux and Jacobian}:
+    \[
+    f(u) = \frac{u^2}{2}, \quad A = \frac{df}{du} = u
+    \]
+    Eigenvalue: \(\lambda = u\). Scalar system, eigenvector is 1.
+
+    \item \textbf{Roe Averaging}:
+    \[
+    \tilde{u} = \frac{u_L + u_R}{2}, \quad \tilde{\lambda} = \tilde{u}
+    \]
+
+    \item \textbf{Wave Strength}:
+    \[
+    \Delta u = u_R - u_L, \quad \tilde{\alpha} = \Delta u
+    \]
+
+    \item \textbf{Roe Flux}:
+    \[
+    F_{i+1/2} = \frac{1}{2} \left( \frac{u_L^2}{2} + \frac{u_R^2}{2} \right) - \frac{1}{2} |\tilde{u}| (u_R - u_L)
+    \]
+\end{enumerate}
+
+\subsection*{2. Traffic Flow (Lighthill-Whitham-Richards) Equation}
+\textbf{Equation}: \(\rho_t + \left( \rho v(\rho) \right)_x = 0\), with \( v(\rho) = v_{\text{max}} \left(1 - \frac{\rho}{\rho_{\text{max}}}\right) \).
+
+\begin{enumerate}
+    \item \textbf{Flux and Jacobian}:
+    \[
+    f(\rho) = \rho v_{\text{max}} \left(1 - \frac{\rho}{\rho_{\text{max}}}\right), \quad A = \frac{df}{d\rho} = v_{\text{max}} \left(1 - \frac{2\rho}{\rho_{\text{max}}}\right)
+    \]
+    Eigenvalue: \(\lambda = v_{\text{max}} \left(1 - \frac{2\rho}{\rho_{\text{max}}}\right)\). Eigenvector: 1.
+
+    \item \textbf{Roe Averaging}:
+    \[
+    \tilde{\rho} = \frac{\rho_L + \rho_R}{2}, \quad \tilde{\lambda} = v_{\text{max}} \left(1 - \frac{2\tilde{\rho}}{\rho_{\text{max}}}\right)
+    \]
+
+    \item \textbf{Wave Strength}:
+    \[
+    \Delta \rho = \rho_R - \rho_L, \quad \tilde{\alpha} = \Delta \rho
+    \]
+
+    \item \textbf{Roe Flux}:
+    \[
+    F_{i+1/2} = \frac{1}{2} \left( f(\rho_L) + f(\rho_R) \right) - \frac{1}{2} \left| v_{\text{max}} \left(1 - \frac{2\tilde{\rho}}{\rho_{\text{max}}}\right) \right| (\rho_R - \rho_L)
+    \]
+\end{enumerate}
+
+\subsection*{3. Advection Equation}
+\textbf{Equation}: \( u_t + (c u)_x = 0 \), \( c \) constant.
+
+\begin{enumerate}
+    \item \textbf{Flux and Jacobian}:
+    \[
+    f(u) = c u, \quad A = \frac{df}{du} = c
+    \]
+    Eigenvalue: \(\lambda = c\). Eigenvector: 1.
+
+    \item \textbf{Roe Averaging}:
+    \[
+    \tilde{u} = \frac{u_L + u_R}{2}, \quad \tilde{\lambda} = c
+    \]
+
+    \item \textbf{Wave Strength}:
+    \[
+    \Delta u = u_R - u_L, \quad \tilde{\alpha} = \Delta u
+    \]
+
+    \item \textbf{Roe Flux}:
+    \[
+    F_{i+1/2} = \frac{1}{2} \left( c u_L + c u_R \right) - \frac{1}{2} |c| (u_R - u_L)
+    \]
+\end{enumerate}
+
+\subsection*{4. Nonlinear Scalar Conservation Law}
+\textbf{Equation}: \( u_t + f(u)_x = 0 \), \( f(u) \) nonlinear (e.g., \( f(u) = u^3 \)).
+
+\begin{enumerate}
+    \item \textbf{Flux and Jacobian}:
+    \[
+    A = \frac{df}{du} = f'(u)
+    \]
+    Eigenvalue: \(\lambda = f'(u)\). Eigenvector: 1.
+
+    \item \textbf{Roe Averaging}:
+    \[
+    \tilde{A} = \frac{f(u_R) - f(u_L)}{u_R - u_L} \quad (u_R \neq u_L), \quad \tilde{\lambda} = \tilde{A}
+    \]
+    If \( u_R = u_L \), use \(\tilde{\lambda} = f'(u_L)\).
+
+    \item \textbf{Wave Strength}:
+    \[
+    \Delta u = u_R - u_L, \quad \tilde{\alpha} = \Delta u
+    \]
+
+    \item \textbf{Roe Flux}:
+    \[
+    F_{i+1/2} = \frac{1}{2} \left( f(u_L) + f(u_R) \right) - \frac{1}{2} \left| \frac{f(u_R) - f(u_L)}{u_R - u_L} \right| (u_R - u_L)
+    \]
+\end{enumerate}
+
+\subsection*{5. p-System}
+\textbf{Equation}: \(\mathbf{u} = [v, w]^T\), \(\mathbf{f} = [w, p(v)]^T\), with \( p(v) = -\sigma(v) \), \(\sigma(v) = v^2\).
+
+\begin{enumerate}
+    \item \textbf{Flux and Jacobian}:
+    \[
+    \mathbf{f} = \begin{bmatrix} w \\ -v^2 \end{bmatrix}, \quad \mathbf{A} = \begin{bmatrix} 0 & 1 \\ -2v & 0 \end{bmatrix}
+    \]
+    Eigenvalues: \(\lambda_1 = -\sqrt{2v}\), \(\lambda_2 = \sqrt{2v}\). Eigenvectors:
+    \[
+    \mathbf{r}_1 = \begin{bmatrix} 1 \\ -\sqrt{2v} \end{bmatrix}, \quad \mathbf{r}_2 = \begin{bmatrix} 1 \\ \sqrt{2v} \end{bmatrix}
+    \]
+
+    \item \textbf{Roe Averaging}:
+    \[
+    \tilde{v} = \sqrt{v_L v_R}, \quad \tilde{w} = \frac{\sqrt{v_L} w_L + \sqrt{v_R} w_R}{\sqrt{v_L} + \sqrt{v_R}}
+    \]
+    Eigenvalues: \(\tilde{\lambda}_1 = -\sqrt{2 \tilde{v}}\), \(\tilde{\lambda}_2 = \sqrt{2 \tilde{v}}\). Eigenvectors:
+    \[
+    \tilde{\mathbf{r}}_1 = \begin{bmatrix} 1 \\ -\sqrt{2 \tilde{v}} \end{bmatrix}, \quad \tilde{\mathbf{r}}_2 = \begin{bmatrix} 1 \\ \sqrt{2 \tilde{v}} \end{bmatrix}
+    \]
+
+    \item \textbf{Wave Strengths}:
+    \[
+    \Delta \mathbf{u} = \begin{bmatrix} v_R - v_L \\ w_R - w_L \end{bmatrix} = \tilde{\alpha}_1 \tilde{\mathbf{r}}_1 + \tilde{\alpha}_2 \tilde{\mathbf{r}}_2
+    \]
+    \[
+    \tilde{\alpha}_1 = \frac{\Delta w + \sqrt{2 \tilde{v}} \Delta v}{2 \sqrt{2 \tilde{v}}}, \quad \tilde{\alpha}_2 = \frac{\Delta w - \sqrt{2 \tilde{v}} \Delta v}{-2 \sqrt{2 \tilde{v}}}
+    \]
+    where \(\Delta v = v_R - v_L\), \(\Delta w = w_R - w_L\).
+
+    \item \textbf{Roe Flux}:
+    \[
+    \mathbf{F}_{i+1/2} = \frac{1}{2} \left( \begin{bmatrix} w_L \\ -v_L^2 \end{bmatrix} + \begin{bmatrix} w_R \\ -v_R^2 \end{bmatrix} \right) - \frac{1}{2} \left( |\tilde{\lambda}_1| \tilde{\alpha}_1 \tilde{\mathbf{r}}_1 + |\tilde{\lambda}_2| \tilde{\alpha}_2 \tilde{\mathbf{r}}_2 \right)
+    \]
+\end{enumerate}
+
+\subsection*{6. Keyfitz-Kranzer System}
+\textbf{Equation}: \(\mathbf{u} = [u, v]^T\), \(\mathbf{f} = [u \sqrt{u^2 + v^2}, v \sqrt{u^2 + v^2}]^T\).
+
+\begin{enumerate}
+    \item \textbf{Flux and Jacobian}:
+    Let \( r = \sqrt{u^2 + v^2} \).
+    \[
+    \mathbf{f} = \begin{bmatrix} u r \\ v r \end{bmatrix}, \quad \mathbf{A} = \begin{bmatrix} \frac{2u^2 + v^2}{r} & \frac{u v}{r} \\ \frac{u v}{r} & \frac{u^2 + 2v^2}{r} \end{bmatrix}
+    \]
+    Eigenvalues: \(\lambda_1 = 0\), \(\lambda_2 = 2r\). Eigenvectors:
+    \[
+    \mathbf{r}_1 = \begin{bmatrix} -v \\ u \end{bmatrix}, \quad \mathbf{r}_2 = \begin{bmatrix} u \\ v \end{bmatrix}
+    \]
+
+    \item \textbf{Roe Averaging}:
+    \[
+    \tilde{u} = \frac{\sqrt{r_L} u_L + \sqrt{r_R} u_R}{\sqrt{r_L} + \sqrt{r_R}}, \quad \tilde{v} = \frac{\sqrt{r_L} v_L + \sqrt{r_R} v_R}{\sqrt{r_L} + \sqrt{r_R}}
+    \]
+    with \( r_L = \sqrt{u_L^2 + v_L^2} \), \( r_R = \sqrt{u_R^2 + v_R^2} \), \(\tilde{r} = \sqrt{\tilde{u}^2 + \tilde{v}^2}\).
+    Eigenvalues: \(\tilde{\lambda}_1 = 0\), \(\tilde{\lambda}_2 = 2 \tilde{r}\). Eigenvectors:
+    \[
+    \tilde{\mathbf{r}}_1 = \begin{bmatrix} -\tilde{v} \\ \tilde{u} \end{bmatrix}, \quad \tilde{\mathbf{r}}_2 = \begin{bmatrix} \tilde{u} \\ \tilde{v} \end{bmatrix}
+    \]
+
+    \item \textbf{Wave Strengths}:
+    \[
+    \Delta \mathbf{u} = \begin{bmatrix} u_R - u_L \\ v_R - v_L \end{bmatrix} = \tilde{\alpha}_1 \tilde{\mathbf{r}}_1 + \tilde{\alpha}_2 \tilde{\mathbf{r}}_2
+    \]
+    \[
+    \tilde{\alpha}_1 = \frac{-\tilde{u} \Delta v + \tilde{v} \Delta u}{\tilde{u}^2 + \tilde{v}^2}, \quad \tilde{\alpha}_2 = \frac{\tilde{u} \Delta u + \tilde{v} \Delta v}{\tilde{u}^2 + \tilde{v}^2}
+    \]
+
+    \item \textbf{Roe Flux}:
+    \[
+    \mathbf{F}_{i+1/2} = \frac{1}{2} \left( \begin{bmatrix} u_L r_L \\ v_L r_L \end{bmatrix} + \begin{bmatrix} u_R r_R \\ v_R r_R \end{bmatrix} \right) - \frac{1}{2} \left( |0| \tilde{\alpha}_1 \tilde{\mathbf{r}}_1 + |2 \tilde{r}| \tilde{\alpha}_2 \tilde{\mathbf{r}}_2 \right)
+    \]
+    Since \( |0| = 0 \):
+    \[
+    \mathbf{F}_{i+1/2} = \frac{1}{2} \left( \mathbf{f}(\mathbf{u}_L) + \mathbf{f}(\mathbf{u}_R) \right) - \tilde{r} \tilde{\alpha}_2 \begin{bmatrix} \tilde{u} \\ \tilde{v} \end{bmatrix}
+    \]
+\end{enumerate}
+
+Each derivation ensures a conservative, consistent flux satisfying the Rankine-Hugoniot condition.
+
+\end{document}

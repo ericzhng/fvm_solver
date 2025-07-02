@@ -1,0 +1,68 @@
+% Setting up document class and essential packages
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{parskip}
+
+% Configuring fonts (loaded last)
+\usepackage{noto}
+
+\begin{document}
+
+\section*{Derivation of Roe Flux for Shallow Water Equations}
+
+The 1D shallow water equations are:
+\[
+\mathbf{u} = \begin{bmatrix} h \\ hu \end{bmatrix}, \quad \mathbf{f} = \begin{bmatrix} hu \\ hu^2 + \frac{1}{2}gh^2 \end{bmatrix}
+\]
+where \(h\) is water height, \(u\) is velocity, \(hu\) is momentum, and \(g\) is gravitational acceleration.
+
+\subsection*{Roe Flux Process}
+\begin{enumerate}
+    \item \textbf{Formulate the Roe Flux}: The numerical flux is:
+    \[
+    \mathbf{F}_{i+1/2} = \frac{1}{2} \left( \mathbf{f}(\mathbf{u}_L) + \mathbf{f}(\mathbf{u}_R) \right) - \frac{1}{2} \sum_{k=1}^2 |\tilde{\lambda}_k| \tilde{\alpha}_k \tilde{\mathbf{r}}_k
+    \]
+    where \(\mathbf{u}_L\) and \(\mathbf{u}_R\) are left and right states, \(\tilde{\lambda}_k\), \(\tilde{\alpha}_k\), and \(\tilde{\mathbf{r}}_k\) are the eigenvalues, wave strengths, and eigenvectors of the Roe-averaged Jacobian.
+
+    \item \textbf{Jacobian}: The flux Jacobian is:
+    \[
+    \mathbf{A} = \begin{bmatrix} 0 & 1 \\ -u^2 + gh & 2u \end{bmatrix}
+    \]
+    Eigenvalues: \(\lambda_1 = u - \sqrt{gh}\), \(\lambda_2 = u + \sqrt{gh}\). Eigenvectors:
+    \[
+    \mathbf{r}_1 = \begin{bmatrix} 1 \\ u - \sqrt{gh} \end{bmatrix}, \quad \mathbf{r}_2 = \begin{bmatrix} 1 \\ u + \sqrt{gh} \end{bmatrix}
+    \]
+
+    \item \textbf{Roe Averaging}: For states \(\mathbf{u}_L = [h_L, h_L u_L]^T\) and \(\mathbf{u}_R = [h_R, h_R u_R]^T\):
+    \[
+    \tilde{h} = \sqrt{h_L h_R}, \quad \tilde{u} = \frac{\sqrt{h_L} u_L + \sqrt{h_R} u_R}{\sqrt{h_L} + \sqrt{h_R}}
+    \]
+    Roe-averaged eigenvalues: \(\tilde{\lambda}_1 = \tilde{u} - \sqrt{g \tilde{h}}\), \(\tilde{\lambda}_2 = \tilde{u} + \sqrt{g \tilde{h}}\). Eigenvectors:
+    \[
+    \tilde{\mathbf{r}}_1 = \begin{bmatrix} 1 \\ \tilde{u} - \sqrt{g \tilde{h}} \end{bmatrix}, \quad \tilde{\mathbf{r}}_2 = \begin{bmatrix} 1 \\ \tilde{u} + \sqrt{g \tilde{h}} \end{bmatrix}
+    \]
+
+    \item \textbf{Wave Strengths}: Decompose the jump \(\Delta \mathbf{u} = \mathbf{u}_R - \mathbf{u}_L = [h_R - h_L, h_R u_R - h_L u_L]^T\):
+    \[
+    \Delta \mathbf{u} = \tilde{\alpha}_1 \tilde{\mathbf{r}}_1 + \tilde{\alpha}_2 \tilde{\mathbf{r}}_2
+    \]
+    Solve:
+    \[
+    \tilde{\alpha}_1 = \frac{\Delta (hu) - \tilde{u} \Delta h + \sqrt{g \tilde{h}} \Delta h}{2 \sqrt{g \tilde{h}}}, \quad \tilde{\alpha}_2 = \frac{\Delta (hu) - \tilde{u} \Delta h - \sqrt{g \tilde{h}} \Delta h}{-2 \sqrt{g \tilde{h}}}
+    \]
+    where \(\Delta h = h_R - h_L\), \(\Delta (hu) = h_R u_R - h_L u_L\).
+
+    \item \textbf{Roe Flux}: Compute:
+    \[
+    \mathbf{F}_{i+1/2} = \frac{1}{2} \left( \mathbf{f}(\mathbf{u}_L) + \mathbf{f}(\mathbf{u}_R) \right) - \frac{1}{2} \left( |\tilde{\lambda}_1| \tilde{\alpha}_1 \tilde{\mathbf{r}}_1 + |\tilde{\lambda}_2| \tilde{\alpha}_2 \tilde{\mathbf{r}}_2 \right)
+    \]
+\end{enumerate}
+
+This ensures a conservative, consistent flux satisfying the Rankine-Hugoniot condition.
+
+\end{document}
