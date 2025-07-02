@@ -39,10 +39,10 @@
     </initial_conditions>
     <solver_settings>
         <time_integration>euler</time_integration>
-        <ghost_cells>2</ghost_cells>
+        <ghost_cells>5</ghost_cells>
         <T>0.1</T>
-        <cfl>0.3</cfl>
-        <flux>hll</flux>
+        <cfl>0.2</cfl>
+        <flux>hllc</flux>
         <reconstruction>muscl</reconstruction>
         <reconstruction_vars>conservative</reconstruction_vars>
         <limiter>minmod</limiter>

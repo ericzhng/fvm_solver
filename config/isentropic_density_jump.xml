@@ -41,7 +41,7 @@
     <solver_settings>
         <time_integration>euler</time_integration>
         <ghost_cells>2</ghost_cells>
-        <T>0.5</T>
+        <T>0.2</T>
         <cfl>0.5</cfl>
         <flux>hllc</flux>
         <reconstruction>muscl</reconstruction>
