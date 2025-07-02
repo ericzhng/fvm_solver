@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Optional
-from .equation.equation_base import EquationBase
+from .equation.equation_base import EqnBase
 
 
 class BoundaryCondition:
@@ -21,7 +21,7 @@ class BoundaryCondition:
 
     def __init__(
         self,
-        equation_system: EquationBase,
+        equation_system: EqnBase,
         bc_kind: str,
         grid: np.ndarray,
         n_ghost: int,
@@ -42,7 +42,7 @@ class BoundaryCondition:
             TypeError: If equation_system is not an EquationBase instance.
             ValueError: If bc_kind is not a supported type.
         """
-        if not isinstance(equation_system, EquationBase):
+        if not isinstance(equation_system, EqnBase):
             raise TypeError("equation_system must be an EquationBase instance")
 
         self.equation_system = equation_system

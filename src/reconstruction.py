@@ -1,5 +1,5 @@
 import numpy as np
-from .equation.equation_base import EquationBase
+from .equation.equation_base import EqnBase
 from .limiter import Limiter
 from .flux import Flux
 
@@ -21,14 +21,14 @@ class Reconstruction:
 
     def __init__(
         self,
-        eqn_obj: EquationBase,
+        eqn_obj: EqnBase,
         str_reconst: str = "constant",
         str_domain: str = "primitive",
         str_flux: str = "hllc",
         str_limiter: str = "",
         limiter_beta: float = 1.5,
     ):
-        if not isinstance(eqn_obj, EquationBase):
+        if not isinstance(eqn_obj, EqnBase):
             raise TypeError("eqn_obj must be an EquationBase instance")
 
         self.eqn_obj = eqn_obj

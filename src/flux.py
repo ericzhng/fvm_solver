@@ -1,5 +1,5 @@
 import numpy as np
-from .equation.equation_base import EquationBase
+from .equation.equation_base import EqnBase
 
 
 class Flux:
@@ -8,7 +8,7 @@ class Flux:
     Supports: Lax-Friedrichs, Rusanov, FORCE, HLL, HLLC, Roe.
     """
 
-    def __init__(self, eqn_obj: EquationBase, str_flux: str, lambda_max: float = 1.0):
+    def __init__(self, eqn_obj: EqnBase, str_flux: str, lambda_max: float = 1.0):
         """
         Args:
             eqn_obj (EquationBase): The equation system to compute fluxes for.

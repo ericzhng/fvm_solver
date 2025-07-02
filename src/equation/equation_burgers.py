@@ -2,15 +2,14 @@ import numpy as np
 from .equation_base import EqnBase
 
 
-class EqnAdvection(EqnBase):
+class EqnBurgers(EqnBase):
     """
-    1D Linear Advection Equation: u_t + a u_x = 0
+    1D Burgers Equation: u_t + (u^2/2)_x = 0
     Primitive and conservative variables are the same: [u].
     """
 
     def __init__(self, c: float = 1.0):
         super().__init__(min_value=1e-10)
-        self.c = c
         self.var_names = ["quantity"]
         self.num_vars = len(self.var_names)
         self.vel_idx = None
@@ -34,7 +33,7 @@ class EqnAdvection(EqnBase):
         if U.shape != (self.num_vars,):
             raise ValueError(f"U must have shape ({self.num_vars},)")
 
-        return np.array([self.c * U[0]])
+        return np.array([U[0] * U[0] / 2.0])
 
     def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """Compute the Roe numerical flux for the shallow water equations, with entropy fix.
@@ -70,12 +69,13 @@ class EqnAdvection(EqnBase):
         # left & right states
         uL = U_L[0]
         uR = U_R[0]
+        u_roe = (uL + uR) / 2.0
 
         # Differences in primitive variables
         du = uR - uL
 
         # eigenvalues and eigenvectors
-        lambda1 = self.c
+        lambda1 = u_roe
 
         # wave strength
         alpha = du
@@ -87,24 +87,39 @@ class EqnAdvection(EqnBase):
 
     def ausm_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         # upwind flux
-        a = self.c
-        if a >= 0:
+
+        # left & right states
+        uL = U_L[0]
+        uR = U_R[0]
+        u_roe = (uL + uR) / 2.0
+
+        if u_roe >= 0:
             return self.compute_flux(U_L)
         else:
             return self.compute_flux(U_R)
 
     def hllc_flux(self, U_L: np.ndarray, U_R: np.ndarray):
         # upwind flux
-        a = self.c
-        if a >= 0:
+
+        # left & right states
+        uL = U_L[0]
+        uR = U_R[0]
+        u_roe = (uL + uR) / 2.0
+
+        if u_roe >= 0:
             return self.compute_flux(U_L)
         else:
             return self.compute_flux(U_R)
 
     def hlle_flux(self, U_L: np.ndarray, U_R: np.ndarray):
         # upwind flux
-        a = self.c
-        if a >= 0:
+
+        # left & right states
+        uL = U_L[0]
+        uR = U_R[0]
+        u_roe = (uL + uR) / 2.0
+
+        if u_roe >= 0:
             return self.compute_flux(U_L)
         else:
             return self.compute_flux(U_R)

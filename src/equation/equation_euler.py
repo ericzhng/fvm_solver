@@ -1,8 +1,8 @@
 import numpy as np
-from .equation_base import EquationBase
+from .equation_base import EqnBase
 
 
-class EulerEquation(EquationBase):
+class EqnEuler(EqnBase):
     """1D Euler equations for compressible gas dynamics.
 
     Models conservation of mass, momentum, and energy.
@@ -94,7 +94,7 @@ class EulerEquation(EquationBase):
 
         return np.array([rho * u, rho * u**2 + p, u * (E + p)])
 
-    def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> tuple:
+    def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """Compute the Roe averages for the Euler equations.
 
         Args:
@@ -130,13 +130,96 @@ class EulerEquation(EquationBase):
         )
         a2 = (self.gamma - 1) * (h_roe - 0.5 * u_roe**2)
         a2 = np.maximum(a2, self.min_value)
-        a_roe = np.sqrt(a2)
+        c_roe = np.sqrt(a2)
 
-        return a_roe, u_roe
+        return u_roe, c_roe
 
     # ---------------------------------------------------- #
     # flux methods that has to be defined per equation wise
     # ---------------------------------------------------- #
+
+    def roe_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """Compute the Roe flux for the Euler equations, with entropy fix.
+
+        Args:
+            U_L (np.ndarray): Left conservative state [density, momentum, energy]
+            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+
+        Returns:
+            np.ndarray: Roe numerical flux
+        """
+        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
+
+        # left state
+        rhoL, uL, pL = self.to_primitive(U_L)
+        EL = U_L[2]
+        aL = np.sqrt(self.gamma * pL / rhoL)
+        HL = (EL + pL) / rhoL  # enthalpy
+
+        # right state
+        rhoR, uR, pR = self.to_primitive(U_R)
+        ER = U_R[2]
+        aR = np.sqrt(self.gamma * pR / rhoR)
+        HR = (ER + pR) / rhoR
+
+        # Roe averages
+        sqrt_rhoL = np.sqrt(rhoL)
+        sqrt_rhoR = np.sqrt(rhoR)
+        rho_roe = np.sqrt(rhoL * rhoR)
+        u_roe = (uL * sqrt_rhoL + uR * sqrt_rhoR) / np.maximum(
+            sqrt_rhoL + sqrt_rhoR, self.min_value
+        )
+        H_roe = (HL * sqrt_rhoL + HR * sqrt_rhoR) / np.maximum(
+            sqrt_rhoL + sqrt_rhoR, self.min_value
+        )
+        a2 = (self.gamma - 1) * (H_roe - 0.5 * u_roe**2)
+        a2 = np.maximum(a2, self.min_value)
+        c_roe = np.sqrt(a2)
+
+        # Left and Right fluxes
+        FL = self.compute_flux(U_L)
+        FR = self.compute_flux(U_R)
+
+        # Differences in primitive variables
+        dr = rhoR - rhoL
+        du = uR - uL
+        dP = pR - pL
+
+        # Wave strengths (characteristic variables)
+        alphaMat = np.array(
+            [
+                (dP - rho_roe * c_roe * du) / (2 * c_roe**2),
+                -(dP / (c_roe**2) - dr),
+                (dP + rho_roe * c_roe * du) / (2 * c_roe**2),
+            ]
+        )
+
+        # Absolute values of the wave speeds (Eigenvalues)
+        lambdas = np.array([abs(u_roe - c_roe), abs(u_roe), abs(u_roe + c_roe)])
+
+        # Harten's Entropy Fix JCP(1983), 49, pp357-393
+        Da = max(0, 4 * ((uR - aR) - (uL - aL)))
+        if lambdas[0] < Da / 2 and Da != 0:
+            lambdas[0] = lambdas[0] ** 2 / Da + Da / 4
+
+        Da = max(0, 4 * ((uR + aR) - (uL + aL)))
+        if lambdas[2] < Da / 2 and Da != 0:
+            lambdas[2] = lambdas[2] ** 2 / Da + Da / 4
+
+        # Right eigenvectors
+        R = np.array(
+            [
+                [1, 1, 1],
+                [u_roe - c_roe, u_roe, u_roe + c_roe],
+                [H_roe - u_roe * c_roe, u_roe**2 / 2, H_roe + u_roe * c_roe],
+            ]
+        )
+
+        # Add the matrix dissipation term to complete the Roe flux
+        Roe = (FL + FR - R @ (lambdas * alphaMat)) / 2
+
+        return Roe
 
     def ausm_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """Compute the physical flux.
@@ -350,15 +433,15 @@ class EulerEquation(EquationBase):
         )
         a2 = (self.gamma - 1) * (H_roe - 0.5 * u_roe**2)
         a2 = np.maximum(a2, self.min_value)
-        a_roe = np.sqrt(a2)
+        c_roe = np.sqrt(a2)
 
         # Left and Right fluxes
         FL = self.compute_flux(U_L)
         FR = self.compute_flux(U_R)
 
         # Wave speed estimates
-        SLm = min(uL - aL, u_roe - a_roe)
-        SRp = max(uR + aR, u_roe + a_roe)
+        SLm = min(uL - aL, u_roe - c_roe)
+        SRp = max(uR + aR, u_roe + c_roe)
 
         # Compute the HLL flux
         if SLm >= 0:  # Right-going supersonic flow
@@ -376,99 +459,3 @@ class EulerEquation(EquationBase):
             HLLE = FR
 
         return HLLE
-
-    def roe_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the Roe flux for the Euler equations, with entropy fix.
-
-        Args:
-            U_L (np.ndarray): Left conservative state [density, momentum, energy]
-            U_R (np.ndarray): Right conservative state [density, momentum, energy]
-
-        Returns:
-            np.ndarray: Roe numerical flux
-        """
-        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
-            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
-
-        # left state
-        rhoL, uL, pL = self.to_primitive(U_L)
-        EL = U_L[2]
-        aL = np.sqrt(self.gamma * pL / rhoL)
-        HL = (EL + pL) / rhoL  # enthalpy
-
-        # right state
-        rhoR, uR, pR = self.to_primitive(U_R)
-        ER = U_R[2]
-        aR = np.sqrt(self.gamma * pR / rhoR)
-        HR = (ER + pR) / rhoR
-
-        # Roe averages
-        sqrt_rhoL = np.sqrt(rhoL)
-        sqrt_rhoR = np.sqrt(rhoR)
-        rho_roe = np.sqrt(rhoL * rhoR)
-        u_roe = (uL * sqrt_rhoL + uR * sqrt_rhoR) / np.maximum(
-            sqrt_rhoL + sqrt_rhoR, self.min_value
-        )
-        H_roe = (HL * sqrt_rhoL + HR * sqrt_rhoR) / np.maximum(
-            sqrt_rhoL + sqrt_rhoR, self.min_value
-        )
-        a2 = (self.gamma - 1) * (H_roe - 0.5 * u_roe**2)
-        a2 = np.maximum(a2, self.min_value)
-        a_roe = np.sqrt(a2)
-
-        # Left and Right fluxes
-        FL = self.compute_flux(U_L)
-        FR = self.compute_flux(U_R)
-
-        # # Differences in primitive variables.
-        # delta_U = U_R - U_L
-
-        # # Compute wave strengths (alpha) using conservative variable jumps
-        # delta_rho = delta_U[0]
-        # delta_rho_u = delta_U[1]
-        # delta_rho_E = delta_U[2]
-        # alpha_2 = ((self.gamma - 1) / (c_roe**2 + self.min_value)) * (
-        #     delta_rho * (0.5 * u_roe**2 - h_roe) + delta_rho_u * u_roe + delta_rho_E
-        # )
-        # alpha_1 = ((delta_rho - alpha_2) * (u_roe + c_roe) - delta_rho_u) / (2 * c_roe + self.min_value)
-        # alpha_3 = (delta_rho_u - (delta_rho - alpha_2) * (u_roe - c_roe)) / (2 * c_roe + self.min_value)
-
-        # Differences in primitive variables
-        dr = rhoR - rhoL
-        du = uR - uL
-        dP = pR - pL
-
-        # Wave strength (Characteristic Variables)
-        dV = np.array(
-            [
-                (dP - rho_roe * a_roe * du) / (2 * a_roe**2),
-                -(dP / (a_roe**2) - dr),
-                (dP + rho_roe * a_roe * du) / (2 * a_roe**2),
-            ]
-        )
-
-        # Absolute values of the wave speeds (Eigenvalues)
-        ws = np.array([abs(u_roe - a_roe), abs(u_roe), abs(u_roe + a_roe)])
-
-        # Harten's Entropy Fix JCP(1983), 49, pp357-393
-        Da = max(0, 4 * ((uR - aR) - (uL - aL)))
-        if ws[0] < Da / 2 and Da != 0:
-            ws[0] = ws[0] ** 2 / Da + Da / 4
-
-        Da = max(0, 4 * ((uR + aR) - (uL + aL)))
-        if ws[2] < Da / 2 and Da != 0:
-            ws[2] = ws[2] ** 2 / Da + Da / 4
-
-        # Right eigenvectors
-        R = np.array(
-            [
-                [1, 1, 1],
-                [u_roe - a_roe, u_roe, u_roe + a_roe],
-                [H_roe - u_roe * a_roe, u_roe**2 / 2, H_roe + u_roe * a_roe],
-            ]
-        )
-
-        # Add the matrix dissipation term to complete the Roe flux
-        Roe = (FL + FR - R @ (ws * dV)) / 2
-
-        return Roe

@@ -5,10 +5,10 @@ from src.utils import parse_xml_config, create_grid, plot_1d_mesh
 
 from src.boundary import BoundaryCondition
 
-from equation.equation_advection import AdvectionEquation
-from equation.equation_isentropic_gas import IsentropicGas
-from equation.equation_shallow_water import ShallowWater
-from equation.equation_euler import EulerEquation
+from equation.equation_advection import EqnAdvection
+from equation.equation_isentropic_gas import EqnIsentropicGas
+from equation.equation_shallow_water import EqnShallowWater
+from equation.equation_euler import EqnEuler
 
 from src.solver import Solver
 from src.reconstruction import Reconstruction
@@ -50,12 +50,12 @@ def main():
 
     # Select equation system
     equation_dict = {
-        "euler": EulerEquation(gamma=config["gamma"]),
-        "advection": AdvectionEquation(
+        "euler": EqnEuler(gamma=config["gamma"]),
+        "advection": EqnAdvection(
             advection_speed=float(config.get("advection_speed", 1.0))
         ),
-        "isentropic": IsentropicGas(gamma=config["gamma"], k=config["k"]),
-        "shallow_water": ShallowWater(gravity=9.81),
+        "isentropic": EqnIsentropicGas(gamma=config["gamma"], k=config["k"]),
+        "shallow_water": EqnShallowWater(gravity=9.81),
     }
     equation = equation_dict[config["equation"]]
 

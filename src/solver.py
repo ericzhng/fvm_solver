@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from .equation.equation_base import EquationBase
+from .equation.equation_base import EqnBase
 from .boundary import BoundaryCondition
 from .reconstruction import Reconstruction
 
@@ -14,7 +14,7 @@ class Solver:
 
     def __init__(
         self,
-        eqn_obj: EquationBase,
+        eqn_obj: EqnBase,
         bc_obj: BoundaryCondition,
         mesh_obj: np.ndarray,
         reconst_obj: Reconstruction,
@@ -39,7 +39,7 @@ class Solver:
             TypeError: If eqn_obj or bc_obj is invalid.
             ValueError: If flux, reconstruction, cfl, or max_iterations is invalid.
         """
-        if not isinstance(eqn_obj, EquationBase):
+        if not isinstance(eqn_obj, EqnBase):
             raise TypeError("eqn_obj must be an EquationBase instance")
         if not isinstance(bc_obj, BoundaryCondition):
             raise TypeError("bc_obj must be a BoundaryCondition instance")

@@ -2,7 +2,7 @@ import numpy as np
 from abc import abstractmethod
 
 
-class EquationBase:
+class EqnBase:
     """
     Abstract base class for hyperbolic conservation law systems.
 
@@ -119,7 +119,7 @@ class EquationBase:
         pass
 
     @abstractmethod
-    def roe_average(self, UL: np.ndarray, UR: np.ndarray) -> tuple:
+    def roe_average(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         """
         Compute the HLLC numerical flux for the given left/right states.
 
@@ -139,15 +139,16 @@ class EquationBase:
     # flux methods that has to be defined per equation wise
     # ---------------------------------------------------- #
 
+    # focus on ROE flux implmentation first
     @abstractmethod
     def roe_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
         pass
 
     def ausm_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("AUSM flux not implemented for this equation system.")
+        pass
 
     def hllc_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("HLLC flux not implemented for this equation system.")
+        pass
 
     def hlle_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("HLLE flux not implemented for this equation system.")
+        pass
