@@ -1,5 +1,5 @@
 import numpy as np
-from .equation.base_equation import EquationSystem
+from .equation.equation_base import EquationBase
 
 
 class Flux:
@@ -8,10 +8,10 @@ class Flux:
     Supports: Lax-Friedrichs, Rusanov, FORCE, HLL, HLLC, Roe.
     """
 
-    def __init__(self, eqn_obj: EquationSystem, str_flux: str, lambda_max: float = 1.0):
+    def __init__(self, eqn_obj: EquationBase, str_flux: str, lambda_max: float = 1.0):
         """
         Args:
-            eqn_obj (EquationSystem): The equation system to compute fluxes for.
+            eqn_obj (EquationBase): The equation system to compute fluxes for.
             lambda_max (float): Maximum wave speed for Lax-Friedrichs (default: 1.0).
         """
         self.eqn_obj = eqn_obj

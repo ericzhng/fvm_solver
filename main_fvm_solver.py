@@ -5,10 +5,10 @@ from src.utils import parse_xml_config, create_grid, plot_1d_mesh
 
 from src.boundary import BoundaryCondition
 
-from src.equation.advection_equation import AdvectionEquation
-from src.equation.isentropic_gas_equation import IsentropicGas
-from src.equation.shallow_water_equation import ShallowWater
-from src.equation.euler_equation import EulerEquation
+from equation.equation_advection import AdvectionEquation
+from equation.equation_isentropic_gas import IsentropicGas
+from equation.equation_shallow_water import ShallowWater
+from equation.equation_euler import EulerEquation
 
 from src.solver import Solver
 from src.reconstruction import Reconstruction

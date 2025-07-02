@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Optional
-from .equation.base_equation import EquationSystem
+from .equation.equation_base import EquationBase
 
 
 class BoundaryCondition:
@@ -12,7 +12,7 @@ class BoundaryCondition:
     ensuring accurate numerical solutions for hyperbolic PDEs.
 
     Attributes:
-        equation_system (EquationSystem): The equation system for state conversions.
+        equation_system (EquationBase): The equation system for state conversions.
         bc_kind (str): The type of boundary condition ('dirichlet', 'neumann', 'periodic', 'reflective').
         grid (np.ndarray): The spatial grid (1D array).
         left_boundary_state (np.ndarray): State or gradient at the left boundary.
@@ -21,7 +21,7 @@ class BoundaryCondition:
 
     def __init__(
         self,
-        equation_system: EquationSystem,
+        equation_system: EquationBase,
         bc_kind: str,
         grid: np.ndarray,
         n_ghost: int,
@@ -32,18 +32,18 @@ class BoundaryCondition:
         Initialize the boundary condition handler.
 
         Args:
-            equation_system (EquationSystem): The system for conservative/primitive state conversions.
+            equation_system (EquationBase): The system for conservative/primitive state conversions.
             bc_kind (str): Boundary condition type. One of {'dirichlet', 'neumann', 'periodic', 'reflective'}.
             grid (np.ndarray): 1D spatial grid.
             left_boundary_state (np.ndarray, optional): State or gradient at the left boundary. Defaults to zeros.
             right_boundary_state (np.ndarray, optional): State or gradient at the right boundary. Defaults to zeros.
 
         Raises:
-            TypeError: If equation_system is not an EquationSystem instance.
+            TypeError: If equation_system is not an EquationBase instance.
             ValueError: If bc_kind is not a supported type.
         """
-        if not isinstance(equation_system, EquationSystem):
-            raise TypeError("equation_system must be an EquationSystem instance")
+        if not isinstance(equation_system, EquationBase):
+            raise TypeError("equation_system must be an EquationBase instance")
 
         self.equation_system = equation_system
         self.bc_kind = bc_kind.lower()

@@ -1,8 +1,8 @@
 import numpy as np
-from .base_equation import EquationSystem
+from .equation_base import EquationBase
 
 
-class ShallowWater(EquationSystem):
+class ShallowWater(EquationBase):
     """
     1D Shallow Water Equation System.
 
@@ -91,9 +91,111 @@ class ShallowWater(EquationSystem):
         u = hu / h
         return np.array([h * u, h * u**2 + 0.5 * self.g * h**2])
 
+    def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> tuple:
+        """Compute the Roe averages for the shallow water equations, with entropy fix.
+
+        Args:
+            U_L (np.ndarray): Left conservative state [density, momentum, energy]
+            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+
+        Returns:
+            tuple(np.ndarray): Roe averages
+        """
+        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
+
+        # left state
+        hL, huL = self.to_primitive(U_L)
+        hL = np.maximum(hL, self.min_value)
+        uL = huL / hL
+
+        # right state
+        hR, huR = self.to_primitive(U_R)
+        hR = np.maximum(hR, self.min_value)
+        uR = huR / hR
+
+        # Roe averages
+        sqrt_hL = np.sqrt(hL)
+        sqrt_hR = np.sqrt(hR)
+
+        u_roe = (uL * sqrt_hL + uR * sqrt_hR) / np.maximum(
+            sqrt_hL + sqrt_hR, self.min_value
+        )
+
+        h_roe = sqrt_hL * sqrt_hR
+        h_roe = np.maximum(h_roe, self.min_value)
+
+        a_roe = np.sqrt(self.g * h_roe)
+
+        return a_roe, u_roe
+
     # ---------------------------------------------------- #
     # flux methods that has to be defined per equation wise
     # ---------------------------------------------------- #
+
+    def ausm_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """Compute the physical flux.
+
+        Args:
+            U_L (np.ndarray): Left conservative state [density, momentum, energy]
+            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+
+        Returns:
+            np.ndarray: AUSM numerical flux
+        """
+        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
+            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
+
+        # left state
+        hL, huL = self.to_primitive(U_L)
+        hL = np.maximum(hL, self.min_value)
+        uL = huL / hL
+        aL = np.sqrt(self.g * hL)
+        ML = uL / aL  # Mach
+
+        # right state
+        hR, huR = self.to_primitive(U_R)
+        hR = np.maximum(hR, self.min_value)
+        uR = huR / hR
+        aR = np.sqrt(self.g * hR)
+        MR = uR / aR
+
+        # Positive M and p in the LEFT cell
+        if ML <= -1:
+            Mp = 0
+            Pp = 0
+        elif ML < 1:
+            Mp = ((ML + 1) ** 2) / 4
+            Pp = pL * ((1 + ML) ** 2) * (2 - ML) / 4  # or Pp = (1 + ML) * pL / 2
+        else:
+            Mp = ML
+            Pp = pL
+
+        # Negative M and p in the RIGHT cell
+        if MR <= -1:
+            Mm = MR
+            Pm = pR
+        elif MR < 1:
+            Mm = -((MR - 1) ** 2) / 4
+            Pm = pR * ((1 - MR) ** 2) * (2 + MR) / 4  # or Pm = (1 - MR) * pR / 2
+        else:
+            Mm = 0
+            Pm = 0
+
+        # Positive Part of Flux evaluated in the left cell
+        MpMm = Mp + Mm
+        Fp = np.zeros(3)
+        Fp[0] = max(0, MpMm) * aL * rhoL
+        Fp[1] = max(0, MpMm) * aL * rhoL * uL + Pp
+        Fp[2] = max(0, MpMm) * aL * rhoL * HL
+
+        # Negative Part of Flux evaluated in the right cell
+        Fm = np.zeros(3)
+        Fm[0] = min(0, MpMm) * aR * rhoR
+        Fm[1] = min(0, MpMm) * aR * rhoR * uR + Pm
+        Fm[2] = min(0, MpMm) * aR * rhoR * HR
+
+        return Fp + Fm
 
     def hllc_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """Compute the HLLC numerical flux for the shallow water equations.
@@ -148,8 +250,8 @@ class ShallowWater(EquationSystem):
 
         return F
 
-    def roe_numerical_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the Roe numerical flux for the shallow water equations, with entropy fix.
+    def roe_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """Compute the Roe flux for the shallow water equations, with entropy fix.
 
         Args:
             W_L (np.ndarray): Left primitive state [height, velocity], shape (2,).
@@ -163,39 +265,65 @@ class ShallowWater(EquationSystem):
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
 
-        W_L = self.to_primitive(U_L)
-        W_R = self.to_primitive(U_R)
-        hL, uL = W_L
-        hR, uR = W_R
+        # left state
+        hL, huL = self.to_primitive(U_L)
         hL = np.maximum(hL, self.min_value)
+        uL = huL / hL
+        aL = np.sqrt(self.g * hL)
+
+        # right state
+        hR, huR = self.to_primitive(U_R)
         hR = np.maximum(hR, self.min_value)
+        uR = huR / hR
+        aR = np.sqrt(self.g * hR)
+
+        # Roe averages
         sqrt_hL = np.sqrt(hL)
         sqrt_hR = np.sqrt(hR)
+        u_roe = (uL * sqrt_hL + uR * sqrt_hR) / np.maximum(
+            sqrt_hL + sqrt_hR, self.min_value
+        )
         h_roe = sqrt_hL * sqrt_hR
-        u_roe = (uL * sqrt_hL + uR * sqrt_hR) / (sqrt_hL + sqrt_hR + self.min_value)
+        h_roe = np.maximum(h_roe, self.min_value)
         c_roe = np.sqrt(self.g * h_roe)
 
-        eigenvalues = np.array([u_roe - c_roe, u_roe + c_roe])
-        eigenvectors = [np.array([1, u_roe - c_roe]), np.array([1, u_roe + c_roe])]
-        delta = 0.1 * c_roe
-
-        delta_U = U_R - U_L
-        alpha_2 = (delta_U[0] * (u_roe - c_roe) - delta_U[1]) / (
-            -2 * c_roe + self.min_value
-        )
-        alpha_1 = delta_U[0] - alpha_2
-        wave_strengths = np.array([alpha_1, alpha_2])
-
+        # Left and Right fluxes
         FL = self.compute_flux(U_L)
         FR = self.compute_flux(U_R)
-        abs_A = np.zeros_like(FL)
-        for i in range(2):
-            abs_lambda = (
-                abs(eigenvalues[i])
-                if abs(eigenvalues[i]) > delta
-                else (eigenvalues[i] ** 2 + delta**2) / (2 * delta)
-            )
-            abs_A += abs_lambda * wave_strengths[i] * eigenvectors[i]
-        F = 0.5 * (FL + FR - abs_A)
+
+        # Differences in primitive variables
+        dh = hR - hL
+        dhu = huR - huR
+
+        # Wave strength (Characteristic Variables)
+        dV = np.array(
+            [
+                (dhu - u_roe * dh + c_roe * dh) / (2 * c_roe),
+                (dhu - u_roe * dh - c_roe * dh) / (-2 * c_roe),
+            ]
+        )
+
+        # Absolute values of the wave speeds (Eigenvalues)
+        ws = np.array([abs(u_roe - c_roe), abs(u_roe + c_roe)])
+
+        # Harten's Entropy Fix JCP(1983), 49, pp357-393
+        Da = max(0, 4 * ((uR - aR) - (uL - aL)))
+        if ws[0] < Da / 2 and Da != 0:
+            ws[0] = ws[0] ** 2 / Da + Da / 4
+
+        Da = max(0, 4 * ((uR + aR) - (uL + aL)))
+        if ws[1] < Da / 2 and Da != 0:
+            ws[1] = ws[1] ** 2 / Da + Da / 4
+
+        # Right eigenvectors
+        R = np.array(
+            [
+                [1, 1],
+                [u_roe + c_roe, u_roe - c_roe],
+            ]
+        )
+
+        # Add the matrix dissipation term to complete the Roe flux
+        F = (FL + FR - R @ (ws * dV)) / 2.0
 
         return F

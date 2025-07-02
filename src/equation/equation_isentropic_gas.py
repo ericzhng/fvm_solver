@@ -1,8 +1,8 @@
 import numpy as np
-from .base_equation import EquationSystem
+from .equation_base import EquationBase
 
 
-class IsentropicGas(EquationSystem):
+class IsentropicGas(EquationBase):
     """Isentropic gas equation system for 1D flows.
 
     Models conservation of mass and momentum under isentropic conditions.

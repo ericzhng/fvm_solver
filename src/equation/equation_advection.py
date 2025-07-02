@@ -1,8 +1,8 @@
 import numpy as np
-from .base_equation import EquationSystem
+from .equation_base import EquationBase
 
 
-class AdvectionEquation(EquationSystem):
+class AdvectionEquation(EquationBase):
     """
     1D Linear Advection Equation: u_t + a u_x = 0
     Primitive and conservative variables are the same: [u].

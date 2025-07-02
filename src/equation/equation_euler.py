@@ -1,8 +1,8 @@
 import numpy as np
-from .base_equation import EquationSystem
+from .equation_base import EquationBase
 
 
-class EulerEquation(EquationSystem):
+class EulerEquation(EquationBase):
     """1D Euler equations for compressible gas dynamics.
 
     Models conservation of mass, momentum, and energy.
@@ -18,7 +18,7 @@ class EulerEquation(EquationSystem):
         self.gamma = gamma
         self.var_names = ["density", "velocity", "pressure"]
         self.num_vars = len(self.var_names)
-        self.vel_idx = 1
+        self.vel_idx = 1  # index start from 0, so velocity is at index 1
 
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """Convert primitive variables to conservative variables.
@@ -95,14 +95,14 @@ class EulerEquation(EquationSystem):
         return np.array([rho * u, rho * u**2 + p, u * (E + p)])
 
     def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> tuple:
-        """Compute the Roe numerical flux for the shallow water equations, with entropy fix.
+        """Compute the Roe averages for the Euler equations.
 
         Args:
             U_L (np.ndarray): Left conservative state [density, momentum, energy]
             U_R (np.ndarray): Right conservative state [density, momentum, energy]
 
         Returns:
-            np.ndarray: Roe numerical flux
+            tuple(np.ndarray): Roe averages
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
@@ -378,7 +378,7 @@ class EulerEquation(EquationSystem):
         return HLLE
 
     def roe_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the Roe numerical flux for the shallow water equations, with entropy fix.
+        """Compute the Roe flux for the Euler equations, with entropy fix.
 
         Args:
             U_L (np.ndarray): Left conservative state [density, momentum, energy]

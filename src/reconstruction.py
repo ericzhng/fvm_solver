@@ -1,5 +1,5 @@
 import numpy as np
-from .equation.base_equation import EquationSystem
+from .equation.equation_base import EquationBase
 from .limiter import Limiter
 from .flux import Flux
 
@@ -12,7 +12,7 @@ class Reconstruction:
     Maintains ghost cells in reconstructed states.
 
     Args:
-        eqn_obj (EquationSystem): System for state conversions.
+        eqn_obj (EquationBase): System for state conversions.
         str_domain (str): Reconstruction in primitive or conservative.
         str_flux (str): Flux method ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe').
         str_limiter (str, optional): Slope limiter type ('minmod', 'superbee', 'vanleer', etc.).
@@ -21,15 +21,15 @@ class Reconstruction:
 
     def __init__(
         self,
-        eqn_obj: EquationSystem,
+        eqn_obj: EquationBase,
         str_reconst: str = "constant",
         str_domain: str = "primitive",
         str_flux: str = "hllc",
         str_limiter: str = "",
         limiter_beta: float = 1.5,
     ):
-        if not isinstance(eqn_obj, EquationSystem):
-            raise TypeError("eqn_obj must be an EquationSystem instance")
+        if not isinstance(eqn_obj, EquationBase):
+            raise TypeError("eqn_obj must be an EquationBase instance")
 
         self.eqn_obj = eqn_obj
         self.name = str_reconst

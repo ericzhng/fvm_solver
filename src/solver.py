@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from .equation.base_equation import EquationSystem
+from .equation.equation_base import EquationBase
 from .boundary import BoundaryCondition
 from .reconstruction import Reconstruction
 
@@ -14,7 +14,7 @@ class Solver:
 
     def __init__(
         self,
-        eqn_obj: EquationSystem,
+        eqn_obj: EquationBase,
         bc_obj: BoundaryCondition,
         mesh_obj: np.ndarray,
         reconst_obj: Reconstruction,
@@ -27,7 +27,7 @@ class Solver:
         """Initialize the solver for 1D/2D/3D hyperbolic systems.
 
         Args:
-            eqn_obj (EquationSystem): The equation system to solve.
+            eqn_obj (EquationBase): The equation system to solve.
             bc_obj (BoundaryCondition): Boundary condition handler.
             grid (np.ndarray): Spatial grid points (1D) or meshgrid (2D/3D).
             cfl (float): CFL number for time step control.
@@ -39,8 +39,8 @@ class Solver:
             TypeError: If eqn_obj or bc_obj is invalid.
             ValueError: If flux, reconstruction, cfl, or max_iterations is invalid.
         """
-        if not isinstance(eqn_obj, EquationSystem):
-            raise TypeError("eqn_obj must be an EquationSystem instance")
+        if not isinstance(eqn_obj, EquationBase):
+            raise TypeError("eqn_obj must be an EquationBase instance")
         if not isinstance(bc_obj, BoundaryCondition):
             raise TypeError("bc_obj must be a BoundaryCondition instance")
         if not isinstance(mesh_obj, np.ndarray):

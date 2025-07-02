@@ -1,9 +1,8 @@
 import numpy as np
 from abc import abstractmethod
-from typing import Optional
 
 
-class EquationSystem:
+class EquationBase:
     """
     Abstract base class for hyperbolic conservation law systems.
 
@@ -50,7 +49,7 @@ class EquationSystem:
         Returns:
             np.ndarray: Conservative variable array, shape (num_vars,).
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def to_primitive(self, U: np.ndarray) -> np.ndarray:
@@ -63,7 +62,7 @@ class EquationSystem:
         Returns:
             np.ndarray: Primitive variable array, shape (num_vars,).
         """
-        raise NotImplementedError
+        pass
 
     def to_conservative_batch(self, W: np.ndarray) -> np.ndarray:
         """
@@ -94,7 +93,8 @@ class EquationSystem:
     @abstractmethod
     def sound_speed(self, U: np.ndarray) -> float:
         """
-        Compute the sound speed for the given primitive state.
+        Compute the sound speed for the given primitive state. maybe zero for some equations.
+        This is used for stability and time step calculations.
 
         Args:
             U (np.ndarray): Conservative variables, shape (num_vars,).
@@ -102,7 +102,7 @@ class EquationSystem:
         Returns:
             float: Sound speed for the given state.
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
@@ -116,10 +116,10 @@ class EquationSystem:
         Returns:
             np.ndarray: Flux vector, shape (num_vars,).
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
-    def roe_average(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
+    def roe_average(self, UL: np.ndarray, UR: np.ndarray) -> tuple:
         """
         Compute the HLLC numerical flux for the given left/right states.
 
@@ -133,22 +133,21 @@ class EquationSystem:
         Raises:
             NotImplementedError: If not implemented in subclass.
         """
-        raise NotImplementedError(
-            "ROE average not implemented for this equation system."
-        )
+        pass
 
-    @abstractmethod
-    def ausm_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("AUSM flux not implemented for this equation system.")
-
-    @abstractmethod
-    def hllc_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("HLLC flux not implemented for this equation system.")
-
-    @abstractmethod
-    def hlle_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("HLLE flux not implemented for this equation system.")
+    # ---------------------------------------------------- #
+    # flux methods that has to be defined per equation wise
+    # ---------------------------------------------------- #
 
     @abstractmethod
     def roe_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
-        raise NotImplementedError("Roe flux not implemented for this equation system.")
+        pass
+
+    def ausm_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("AUSM flux not implemented for this equation system.")
+
+    def hllc_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("HLLC flux not implemented for this equation system.")
+
+    def hlle_flux(self, UL: np.ndarray, UR: np.ndarray) -> np.ndarray:
+        raise NotImplementedError("HLLE flux not implemented for this equation system.")
