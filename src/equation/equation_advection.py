@@ -8,9 +8,9 @@ class EqnAdvection(EqnBase):
     Primitive and conservative variables are the same: [u].
     """
 
-    def __init__(self, c: float = 1.0):
+    def __init__(self, speed: float = 1.0):
         super().__init__(min_value=1e-10)
-        self.c = c
+        self.speed = speed
         self.var_names = ["quantity"]
         self.num_vars = len(self.var_names)
         self.vel_idx = None
@@ -25,16 +25,16 @@ class EqnAdvection(EqnBase):
             raise ValueError(f"U must have shape ({self.num_vars},)")
         return U.copy()
 
-    def sound_speed(self, U: np.ndarray) -> float:
+    def max_eigenvalue(self, U: np.ndarray) -> float:
         # For linear advection, the "wave speed" is |a|
-        return 0
+        return self.speed
 
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
         # F = a * u
         if U.shape != (self.num_vars,):
             raise ValueError(f"U must have shape ({self.num_vars},)")
 
-        return np.array([self.c * U[0]])
+        return np.array([self.speed * U[0]])
 
     def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """Compute the Roe numerical flux for the shallow water equations, with entropy fix.
@@ -75,7 +75,7 @@ class EqnAdvection(EqnBase):
         du = uR - uL
 
         # eigenvalues and eigenvectors
-        lambda1 = self.c
+        lambda1 = self.speed
 
         # wave strength
         alpha = du
@@ -87,7 +87,7 @@ class EqnAdvection(EqnBase):
 
     def ausm_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         # upwind flux
-        a = self.c
+        a = self.speed
         if a >= 0:
             return self.compute_flux(U_L)
         else:
@@ -95,7 +95,7 @@ class EqnAdvection(EqnBase):
 
     def hllc_flux(self, U_L: np.ndarray, U_R: np.ndarray):
         # upwind flux
-        a = self.c
+        a = self.speed
         if a >= 0:
             return self.compute_flux(U_L)
         else:
@@ -103,7 +103,7 @@ class EqnAdvection(EqnBase):
 
     def hlle_flux(self, U_L: np.ndarray, U_R: np.ndarray):
         # upwind flux
-        a = self.c
+        a = self.speed
         if a >= 0:
             return self.compute_flux(U_L)
         else:

@@ -55,7 +55,7 @@ class EqnEuler(EqnBase):
         p = np.maximum(p, self.min_value)
         return np.array([rho, u, p])
 
-    def sound_speed(self, U: np.ndarray) -> float:
+    def max_eigenvalue(self, U: np.ndarray) -> float:
         """Compute the sound speed for the gas.
 
         Args:
@@ -64,14 +64,14 @@ class EqnEuler(EqnBase):
         Returns:
             float: Sound speed (sqrt(gamma * p / rho))
         """
-        if U.shape != (self.num_vars,):
-            raise ValueError(f"U must have shape ({self.num_vars},)")
         rho, m, E = U
         rho = np.maximum(rho, self.min_value)
         u = m / rho
         p = (E - 0.5 * rho * u**2) * (self.gamma - 1)
         p = np.maximum(p, self.min_value)
-        return np.sqrt(self.gamma * p / rho)
+        sound_speed = np.sqrt(self.gamma * p / rho)
+        eigenvalue_max = max(u - sound_speed, u, u + sound_speed)
+        return eigenvalue_max
 
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
         """Compute the physical flux.

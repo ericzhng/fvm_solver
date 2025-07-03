@@ -24,9 +24,11 @@ class EqnKK(EqnBase):
             raise ValueError(f"U must have shape ({self.num_vars},)")
         return U.copy()
 
-    def sound_speed(self, U: np.ndarray) -> float:
+    def max_eigenvalue(self, U: np.ndarray) -> float:
         # For linear advection, the "wave speed" is |a|
-        return 0
+        r = np.sqrt(U[0] * U[0] + U[1] * U[1])
+
+        return 2.0 * r
 
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
         # F = a * u
@@ -94,6 +96,7 @@ class EqnKK(EqnBase):
         v_roe = (vL * sqrt_rL + vR * sqrt_rR) / np.maximum(
             sqrt_rL + sqrt_rR, self.min_value
         )
+        vec = np.array([u_roe, v_roe])
         r_roe = np.sqrt(u_roe * u_roe + v_roe * v_roe)
 
         # Differences in primitive variables
@@ -105,10 +108,9 @@ class EqnKK(EqnBase):
 
         # wave strength
         alpha = (u_roe * du + v_roe * dv) / r_roe**2
-        vec2 = np.array([du, dv])
 
         # Add the matrix dissipation term to complete the Roe flux
-        Roe = (FL + FR - (lambda2 * alpha * vec2)) / 2
+        Roe = (FL + FR - (lambda2 * alpha * vec)) / 2
 
         return Roe
 

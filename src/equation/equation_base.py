@@ -27,7 +27,7 @@ class EqnBase:
         self.min_value = min_value
         self.var_names: list[str] = []
         self.num_vars = 0
-        self.vel_idx: int = 0
+        self.vel_idx: int = None
 
     def get_var_names(self) -> list:
         """
@@ -91,7 +91,7 @@ class EqnBase:
         return np.stack([self.to_primitive(U[:, i]) for i in range(U.shape[1])], axis=1)
 
     @abstractmethod
-    def sound_speed(self, U: np.ndarray) -> float:
+    def max_eigenvalue(self, U: np.ndarray) -> float:
         """
         Compute the sound speed for the given primitive state. maybe zero for some equations.
         This is used for stability and time step calculations.

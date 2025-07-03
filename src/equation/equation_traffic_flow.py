@@ -26,9 +26,9 @@ class EqnTrafficLWR(EqnBase):
             raise ValueError(f"U must have shape ({self.num_vars},)")
         return U.copy()
 
-    def sound_speed(self, U: np.ndarray) -> float:
-        # For linear advection, the "wave speed" is |a|
-        return 0
+    def max_eigenvalue(self, U: np.ndarray) -> float:
+        rho = U[0]
+        return self.vMax * (1 - 2.0 * rho / self.rhoMax)
 
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
         # F = a * u

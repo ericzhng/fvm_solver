@@ -55,6 +55,14 @@ class EqnIsentropicGas(EqnBase):
         rho = np.maximum(rho, self.min_value)
         return np.array([rho, m / rho])
 
+    def max_eigenvalue(self, U: np.ndarray) -> float:
+        rho, m = U
+        rho = np.maximum(rho, self.min_value)
+        sound_speed = np.sqrt(self.gamma * self.k * rho ** (self.gamma - 1))
+        u = m / rho
+        eigenvalue_max = max(u - sound_speed, u + sound_speed)
+        return eigenvalue_max
+
     def sound_speed(self, U: np.ndarray) -> float:
         """Compute the sound speed for the isentropic gas.
 

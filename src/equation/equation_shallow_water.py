@@ -21,7 +21,7 @@ class EqnShallowWater(EqnBase):
         if gravity <= 0:
             raise ValueError("gravity must be positive")
         super().__init__(min_value=1e-10)
-        self.g = gravity
+        self.gravity = gravity
         self.var_names = ["height", "velocity"]
         self.num_vars = len(self.var_names)
         self.vel_idx = 1
@@ -58,7 +58,7 @@ class EqnShallowWater(EqnBase):
         h = np.maximum(h, self.min_value)
         return np.array([h, hu / h])
 
-    def sound_speed(self, U: np.ndarray) -> float:
+    def max_eigenvalue(self, U: np.ndarray) -> float:
         """
         Compute the local wave speed (gravity wave speed).
 
@@ -68,11 +68,12 @@ class EqnShallowWater(EqnBase):
         Returns:
             float: Local wave speed.
         """
-        if U.shape != (self.num_vars,):
-            raise ValueError(f"U must have shape ({self.num_vars},)")
-        h = U[0]
+        h, hu = U
         h = np.maximum(h, self.min_value)
-        return np.sqrt(self.g * h)
+        sound_speed = np.sqrt(self.gravity * h)
+        u = hu / h
+        eigenvalue_max = max(u - sound_speed, u + sound_speed)
+        return eigenvalue_max
 
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
         """Compute the physical flux vector.
@@ -89,7 +90,7 @@ class EqnShallowWater(EqnBase):
         h, hu = U
         h = np.maximum(h, self.min_value)
         u = hu / h
-        return np.array([h * u, h * u**2 + 0.5 * self.g * h**2])
+        return np.array([h * u, h * u**2 + 0.5 * self.gravity * h**2])
 
     def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> tuple:
         """Compute the Roe averages for the shallow water equations, with entropy fix.
@@ -125,7 +126,7 @@ class EqnShallowWater(EqnBase):
         h_roe = sqrt_hL * sqrt_hR
         h_roe = np.maximum(h_roe, self.min_value)
 
-        c_roe = np.sqrt(self.g * h_roe)
+        c_roe = np.sqrt(self.gravity * h_roe)
 
         return u_roe, c_roe
 
@@ -150,11 +151,11 @@ class EqnShallowWater(EqnBase):
 
         # left state
         hL, uL = self.to_primitive(U_L)
-        aL = np.sqrt(self.g * hL)
+        aL = np.sqrt(self.gravity * hL)
 
         # right state
         hR, uR = self.to_primitive(U_R)
-        aR = np.sqrt(self.g * hR)
+        aR = np.sqrt(self.gravity * hR)
 
         # Roe averages
         sqrt_hL = np.sqrt(hL)
@@ -164,7 +165,7 @@ class EqnShallowWater(EqnBase):
         )
         h_roe = sqrt_hL * sqrt_hR
         h_roe = np.maximum(h_roe, self.min_value)
-        c_roe = np.sqrt(self.g * h_roe)
+        c_roe = np.sqrt(self.gravity * h_roe)
 
         # Left and Right fluxes
         FL = self.compute_flux(U_L)
@@ -224,14 +225,14 @@ class EqnShallowWater(EqnBase):
         hL, huL = self.to_primitive(U_L)
         hL = np.maximum(hL, self.min_value)
         uL = huL / hL
-        aL = np.sqrt(self.g * hL)
+        aL = np.sqrt(self.gravity * hL)
         ML = uL / aL  # Mach
 
         # right state
         hR, huR = self.to_primitive(U_R)
         hR = np.maximum(hR, self.min_value)
         uR = huR / hR
-        aR = np.sqrt(self.g * hR)
+        aR = np.sqrt(self.gravity * hR)
         MR = uR / aR
 
         # Positive M and p in the LEFT cell
@@ -293,13 +294,15 @@ class EqnShallowWater(EqnBase):
         hL = np.maximum(hL, self.min_value)
         hR = np.maximum(hR, self.min_value)
 
-        cL = np.sqrt(self.g * hL)
-        cR = np.sqrt(self.g * hR)
+        cL = np.sqrt(self.gravity * hL)
+        cR = np.sqrt(self.gravity * hR)
         SL = min(uL - cL, uR - cR)
         SR = max(uL + cL, uR + cR)
         denom = hR * (SR - uR) - hL * (SL - uL)
         S_star = (
-            hR * uR * (SR - uR) - hL * uL * (SL - uL) + 0.5 * self.g * (hR**2 - hL**2)
+            hR * uR * (SR - uR)
+            - hL * uL * (SL - uL)
+            + 0.5 * self.gravity * (hR**2 - hL**2)
         ) / (denom + self.min_value)
 
         hL_star = np.maximum(
@@ -346,13 +349,15 @@ class EqnShallowWater(EqnBase):
         hL = np.maximum(hL, self.min_value)
         hR = np.maximum(hR, self.min_value)
 
-        cL = np.sqrt(self.g * hL)
-        cR = np.sqrt(self.g * hR)
+        cL = np.sqrt(self.gravity * hL)
+        cR = np.sqrt(self.gravity * hR)
         SL = min(uL - cL, uR - cR)
         SR = max(uL + cL, uR + cR)
         denom = hR * (SR - uR) - hL * (SL - uL)
         S_star = (
-            hR * uR * (SR - uR) - hL * uL * (SL - uL) + 0.5 * self.g * (hR**2 - hL**2)
+            hR * uR * (SR - uR)
+            - hL * uL * (SL - uL)
+            + 0.5 * self.gravity * (hR**2 - hL**2)
         ) / (denom + self.min_value)
 
         hL_star = np.maximum(

@@ -8,11 +8,11 @@ class EqnBurgers(EqnBase):
     Primitive and conservative variables are the same: [u].
     """
 
-    def __init__(self, c: float = 1.0):
+    def __init__(self):
         super().__init__(min_value=1e-10)
-        self.var_names = ["quantity"]
+        self.var_names = ["velocity"]
         self.num_vars = len(self.var_names)
-        self.vel_idx = None
+        self.vel_idx = 0
 
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         if W.shape != (self.num_vars,):
@@ -24,9 +24,9 @@ class EqnBurgers(EqnBase):
             raise ValueError(f"U must have shape ({self.num_vars},)")
         return U.copy()
 
-    def sound_speed(self, U: np.ndarray) -> float:
+    def max_eigenvalue(self, U: np.ndarray) -> float:
         # For linear advection, the "wave speed" is |a|
-        return 0
+        return U[0]
 
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
         # F = a * u
