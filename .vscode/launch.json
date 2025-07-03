@@ -11,7 +11,7 @@
             "program": "${file}",
             "args": [
                 "--config",
-                "config_isentropic_density_jump.xml"
+                "config/keyfitz_kranzer_step.xml"
             ],
             "console": "integratedTerminal"
         }
