@@ -1,113 +1,155 @@
+"""
+This module defines the EqnEuler class for the 1D Euler equations of
+compressible gas dynamics.
+"""
+
 import numpy as np
 from .equation_base import EqnBase
 
 
 class EqnEuler(EqnBase):
-    """1D Euler equations for compressible gas dynamics.
+    """
+    Represents the 1D Euler equations for compressible, inviscid gas dynamics.
 
-    Models conservation of mass, momentum, and energy.
+    This class models the conservation of mass, momentum, and total energy.
+    The system is defined by the vector of conservative variables U and the
+    flux vector F(U).
+
+    Conservative variables U = [ρ, ρu, E]
+    Primitive variables W = [ρ, u, p]
+
+    where:
+    - ρ is the density
+    - u is the velocity
+    - p is the pressure
+    - E is the total energy per unit volume
+    - The system is closed by the ideal gas equation of state: E = p/(γ-1) + 0.5*ρ*u²
+
+    Attributes:
+        gamma (float): The ratio of specific heats (adiabatic index).
+        var_names (list[str]): Names of the primitive variables.
+        num_vars (int): The number of variables in the system (3).
+        vel_idx (int): The index of the velocity variable in the primitive state (1).
     """
 
     def __init__(self, gamma: float = 1.4):
-        """Initialize the Euler equation system.
+        """
+        Initializes the Euler equation system.
 
         Args:
-            gamma (float): Ratio of specific heats (default: 1.4 for air).
+            gamma (float, optional): The ratio of specific heats. Defaults to 1.4,
+                                     a common value for air.
         """
         super().__init__(min_value=1e-10)
         self.gamma = gamma
         self.var_names = ["density", "velocity", "pressure"]
         self.num_vars = len(self.var_names)
-        self.vel_idx = 1  # index start from 0, so velocity is at index 1
+        self.vel_idx = 1  # Velocity 'u' is the second variable
 
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
-        """Convert primitive variables to conservative variables.
+        """
+        Converts primitive variables [ρ, u, p] to conservative variables [ρ, ρu, E].
 
         Args:
-            W (np.ndarray): [density, velocity, pressure]
+            W (np.ndarray): A 1D array of primitive variables [ρ, u, p].
 
         Returns:
-            np.ndarray: [density, momentum, total energy]
+            np.ndarray: A 1D array of conservative variables [ρ, ρu, E].
         """
         if W.shape != (self.num_vars,):
             raise ValueError(f"W must have shape ({self.num_vars},)")
         rho, u, p = W
+        # Apply floor values for stability
         rho = np.maximum(rho, self.min_value)
         p = np.maximum(p, self.min_value)
+        # Calculate total energy E
         E = p / (self.gamma - 1) + 0.5 * rho * u**2
         return np.array([rho, rho * u, E])
 
     def to_primitive(self, U: np.ndarray) -> np.ndarray:
-        """Convert conservative variables to primitive variables.
+        """
+        Converts conservative variables [ρ, ρu, E] to primitive variables [ρ, u, p].
 
         Args:
-            U (np.ndarray): [density, momentum, total energy]
+            U (np.ndarray): A 1D array of conservative variables [ρ, ρu, E].
 
         Returns:
-            np.ndarray: [density, velocity, pressure]
+            np.ndarray: A 1D array of primitive variables [ρ, u, p].
         """
         if U.shape != (self.num_vars,):
             raise ValueError(f"U must have shape ({self.num_vars},)")
         rho, m, E = U
+        # Apply floor value for density
         rho = np.maximum(rho, self.min_value)
+        # Calculate primitive variables
         u = m / rho
         p = (E - 0.5 * rho * u**2) * (self.gamma - 1)
+        # Apply floor value for pressure
         p = np.maximum(p, self.min_value)
         return np.array([rho, u, p])
 
     def max_eigenvalue(self, U: np.ndarray) -> float:
-        """Compute the sound speed for the gas.
+        """
+        Computes the maximum absolute eigenvalue (|u| + c) of the flux Jacobian.
+
+        This is used to determine the maximum wave speed for the CFL condition.
 
         Args:
-            W (np.ndarray): [density, velocity, pressure]
+            U (np.ndarray): The conservative state vector [ρ, ρu, E].
 
         Returns:
-            float: Sound speed (sqrt(gamma * p / rho))
+            float: The maximum wave speed |u| + c.
         """
-        rho, m, E = U
-        rho = np.maximum(rho, self.min_value)
-        u = m / rho
-        p = (E - 0.5 * rho * u**2) * (self.gamma - 1)
-        p = np.maximum(p, self.min_value)
+        rho, u, p = self.to_primitive(U)
+        # Sound speed c = sqrt(γ * p / ρ)
         sound_speed = np.sqrt(self.gamma * p / rho)
         eigenvalue_max = max(u - sound_speed, u, u + sound_speed)
         return eigenvalue_max
 
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
-        """Compute the physical flux.
+        """
+        Computes the physical flux vector F(U) for the Euler equations.
+
+        F(U) = [ρu, ρu² + p, u(E + p)]
 
         Args:
-            U (np.ndarray): [density, momentum, total energy]
-            W (np.ndarray): [density, velocity, pressure]
+            U (np.ndarray): The conservative state vector [ρ, ρu, E].
 
         Returns:
-            np.ndarray: [rho*u, rho*u^2 + p, u*(E + p)]
+            np.ndarray: The physical flux vector.
         """
         if U.shape != (self.num_vars,):
             raise ValueError(f"U must have shape ({self.num_vars},)")
 
-        rho, m, E = U
-        rho = np.maximum(rho, self.min_value)
-        u = m / rho
-        p = (E - 0.5 * rho * u**2) * (self.gamma - 1)
-        p = np.maximum(p, self.min_value)
+        rho, u, p = self.to_primitive(U)
+        E = U[2]
 
-        return np.array([rho * u, rho * u**2 + p, u * (E + p)])
+        # Flux vector components
+        flux_mass = rho * u
+        flux_momentum = rho * u**2 + p
+        flux_energy = u * (E + p)
 
-    def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the Roe averages for the Euler equations.
+        return np.array([flux_mass, flux_momentum, flux_energy])
+
+    def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> tuple[float, float]:
+        """
+        Computes Roe-averaged quantities for the Euler equations.
+
+        This calculates the Roe-averaged velocity (u_roe) and sound speed (c_roe)
+        which are essential for constructing the Roe numerical flux.
 
         Args:
-            U_L (np.ndarray): Left conservative state [density, momentum, energy]
-            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+            U_L (np.ndarray): Left conservative state [ρ, ρu, E]_L.
+            U_R (np.ndarray): Right conservative state [ρ, ρu, E]_R.
 
         Returns:
-            tuple(np.ndarray): Roe averages
+            tuple[float, float]: A tuple containing the Roe-averaged velocity
+                                 and sound speed (u_roe, c_roe).
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
 
-        # left state
+        # Left state properties
         rhoL, uL, pL = self.to_primitive(U_L)
         EL = U_L[2]
 
@@ -135,18 +177,20 @@ class EqnEuler(EqnBase):
         return u_roe, c_roe
 
     # ---------------------------------------------------- #
-    # flux methods that has to be defined per equation wise
+    # Numerical Flux Methods for the Euler Equations       #
     # ---------------------------------------------------- #
 
     def roe_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the Roe flux for the Euler equations, with entropy fix.
+        """
+        Computes the Roe numerical flux for the Euler equations, including an
+        entropy fix to handle vanishing rarefactions.
 
         Args:
-            U_L (np.ndarray): Left conservative state [density, momentum, energy]
-            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+            U_L (np.ndarray): Left conservative state [ρ, ρu, E]_L.
+            U_R (np.ndarray): Right conservative state [ρ, ρu, E]_R.
 
         Returns:
-            np.ndarray: Roe numerical flux
+            np.ndarray: The Roe numerical flux vector.
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
@@ -212,7 +256,7 @@ class EqnEuler(EqnBase):
             [
                 [1, 1, 1],
                 [u_roe - c_roe, u_roe, u_roe + c_roe],
-                [H_roe - u_roe * c_roe, u_roe**2 / 2, H_roe + u_roe * c_roe],
+                [H_roe - u_roe * c_roe, 0.5 * u_roe**2, H_roe + u_roe * c_roe],
             ]
         )
 
@@ -222,14 +266,15 @@ class EqnEuler(EqnBase):
         return Roe
 
     def ausm_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the physical flux.
+        """
+        Computes the AUSM (Advection Upstream Splitting Method) numerical flux.
 
         Args:
-            U_L (np.ndarray): Left conservative state [density, momentum, energy]
-            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+            U_L (np.ndarray): Left conservative state [ρ, ρu, E]_L.
+            U_R (np.ndarray): Right conservative state [ρ, ρu, E]_R.
 
         Returns:
-            np.ndarray: AUSM numerical flux
+            np.ndarray: The AUSM numerical flux vector.
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
@@ -286,14 +331,15 @@ class EqnEuler(EqnBase):
         return Fp + Fm
 
     def hllc_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute HLLC numerical flux for Euler equations.
+        """
+        Computes the HLLC (Harten-Lax-van Leer-Contact) numerical flux.
 
         Args:
-            U_L (np.ndarray): Left conservative state [density, momentum, energy]
-            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+            U_L (np.ndarray): Left conservative state [ρ, ρu, E]_L.
+            U_R (np.ndarray): Right conservative state [ρ, ρu, E]_R.
 
         Returns:
-            np.ndarray: HLLC numerical flux
+            np.ndarray: The HLLC numerical flux vector.
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
@@ -398,14 +444,15 @@ class EqnEuler(EqnBase):
         return HLLC
 
     def hlle_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the physical flux.
+        """
+        Computes the HLLE (Harten-Lax-van Leer-Einfeldt) numerical flux.
 
         Args:
-            U_L (np.ndarray): Left conservative state [density, momentum, energy]
-            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+            U_L (np.ndarray): Left conservative state [ρ, ρu, E]_L.
+            U_R (np.ndarray): Right conservative state [ρ, ρu, E]_R.
 
         Returns:
-            np.ndarray: AUSM numerical flux
+            np.ndarray: The HLLE numerical flux vector.
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")

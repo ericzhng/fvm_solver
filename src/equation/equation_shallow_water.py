@@ -1,25 +1,44 @@
+"""
+This module defines the EqnShallowWater class for the 1D Shallow Water
+equations, used to model flows in channels, rivers, and coastal regions.
+"""
+
 import numpy as np
 from .equation_base import EqnBase
 
 
 class EqnShallowWater(EqnBase):
     """
-    1D Shallow Water Equation System.
+    Represents the 1D Shallow Water Equations (SWE).
 
-    Governs the conservation of water height and momentum, including gravitational effects.
-    Primitive variables: [height, velocity]
-    Conservative variables: [height, momentum]
+    This system models the conservation of mass (water height) and momentum in a
+    one-dimensional channel, assuming a hydrostatic pressure distribution.
+
+    Conservative variables U = [h, hu]
+    Primitive variables W = [h, u]
+
+    where:
+    - h is the water height
+    - u is the water velocity
+    - hu is the momentum
+
+    Attributes:
+        gravity (float): The acceleration due to gravity.
+        var_names (list[str]): Names of the primitive variables.
+        num_vars (int): The number of variables in the system (2).
+        vel_idx (int): The index of the velocity variable in the primitive state (1).
     """
 
     def __init__(self, gravity: float = 9.81):
         """
-        Initialize the shallow water equation system.
+        Initializes the shallow water equation system.
 
         Args:
-            gravity (float): Gravitational acceleration (must be positive).
+            gravity (float, optional): The gravitational acceleration (must be positive).
+                                       Defaults to 9.81.
         """
         if gravity <= 0:
-            raise ValueError("gravity must be positive")
+            raise ValueError("Gravity must be a positive value.")
         super().__init__(min_value=1e-10)
         self.gravity = gravity
         self.var_names = ["height", "velocity"]
@@ -28,13 +47,13 @@ class EqnShallowWater(EqnBase):
 
     def to_conservative(self, W: np.ndarray) -> np.ndarray:
         """
-        Convert primitive variables to conservative variables.
+        Converts primitive variables [h, u] to conservative variables [h, hu].
 
         Args:
-            W (np.ndarray): Primitive variables [height, velocity], shape (2,).
+            W (np.ndarray): A 1D array of primitive variables [h, u].
 
         Returns:
-            np.ndarray: Conservative variables [height, momentum], shape (2,).
+            np.ndarray: A 1D array of conservative variables [h, hu].
         """
         if W.shape != (self.num_vars,):
             raise ValueError(f"W must have shape ({self.num_vars},)")
@@ -44,29 +63,31 @@ class EqnShallowWater(EqnBase):
 
     def to_primitive(self, U: np.ndarray) -> np.ndarray:
         """
-        Convert conservative variables to primitive variables.
+        Converts conservative variables [h, hu] to primitive variables [h, u].
 
         Args:
-            U (np.ndarray): Conservative variables [height, momentum], shape (2,).
+            U (np.ndarray): A 1D array of conservative variables [h, hu].
 
         Returns:
-            np.ndarray: Primitive variables [height, velocity], shape (2,).
+            np.ndarray: A 1D array of primitive variables [h, u].
         """
         if U.shape != (self.num_vars,):
             raise ValueError(f"U must have shape ({self.num_vars},)")
         h, hu = U
         h = np.maximum(h, self.min_value)
-        return np.array([h, hu / h])
+        u = hu / h
+        return np.array([h, u])
 
     def max_eigenvalue(self, U: np.ndarray) -> float:
         """
-        Compute the local wave speed (gravity wave speed).
+        Computes the maximum absolute eigenvalue (|u| + c) of the flux Jacobian.
+        Here, c = sqrt(g*h) is the gravity wave speed.
 
         Args:
-            W (np.ndarray): Primitive variables [height, velocity], shape (2,).
+            U (np.ndarray): The conservative state vector [h, hu].
 
         Returns:
-            float: Local wave speed.
+            float: The maximum wave speed |u| + c.
         """
         h, hu = U
         h = np.maximum(h, self.min_value)
@@ -76,31 +97,35 @@ class EqnShallowWater(EqnBase):
         return eigenvalue_max
 
     def compute_flux(self, U: np.ndarray) -> np.ndarray:
-        """Compute the physical flux vector.
+        """
+        Computes the physical flux vector F(U) for the shallow water equations.
+
+        F(U) = [hu, hu² + 0.5*g*h²]
 
         Args:
-            U (np.ndarray): Conservative variables [height, momentum], shape (2,).
-            W (np.ndarray): Primitive variables [height, velocity], shape (2,).
+            U (np.ndarray): The conservative state vector [h, hu].
 
         Returns:
-            np.ndarray: Flux vector, shape (2,).
+            np.ndarray: The physical flux vector.
         """
         if U.shape != (self.num_vars,):
             raise ValueError(f"U must have shape ({self.num_vars},)")
-        h, hu = U
-        h = np.maximum(h, self.min_value)
-        u = hu / h
-        return np.array([h * u, h * u**2 + 0.5 * self.gravity * h**2])
+        h, u = self.to_primitive(U)
+        flux_mass = h * u
+        flux_momentum = h * u**2 + 0.5 * self.gravity * h**2
+        return np.array([flux_mass, flux_momentum])
 
-    def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> tuple:
-        """Compute the Roe averages for the shallow water equations, with entropy fix.
+    def roe_average(self, U_L: np.ndarray, U_R: np.ndarray) -> tuple[float, float]:
+        """
+        Computes Roe-averaged quantities for the shallow water equations.
 
         Args:
-            U_L (np.ndarray): Left conservative state [density, momentum, energy]
-            U_R (np.ndarray): Right conservative state [density, momentum, energy]
+            U_L (np.ndarray): Left conservative state [h, hu]_L.
+            U_R (np.ndarray): Right conservative state [h, hu]_R.
 
         Returns:
-            tuple(np.ndarray): Roe averages
+            tuple[float, float]: A tuple containing the Roe-averaged velocity
+                                 and wave speed (u_roe, c_roe).
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
@@ -131,20 +156,19 @@ class EqnShallowWater(EqnBase):
         return u_roe, c_roe
 
     # ---------------------------------------------------- #
-    # flux methods that has to be defined per equation wise
+    # Numerical Flux Methods for Shallow Water Equations   #
     # ---------------------------------------------------- #
 
     def roe_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the Roe flux for the shallow water equations, with entropy fix.
+        """
+        Computes the Roe numerical flux for the shallow water equations.
 
         Args:
-            W_L (np.ndarray): Left primitive state [height, velocity], shape (2,).
-            W_R (np.ndarray): Right primitive state [height, velocity], shape (2,).
-            U_L (np.ndarray): Left conservative state [height, momentum], shape (2,).
-            U_R (np.ndarray): Right conservative state [height, momentum], shape (2,).
+            U_L (np.ndarray): Left conservative state [h, hu]_L.
+            U_R (np.ndarray): Right conservative state [h, hu]_R.
 
         Returns:
-            np.ndarray: Roe numerical flux, shape (2,).
+            np.ndarray: The Roe numerical flux vector.
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
@@ -209,80 +233,30 @@ class EqnShallowWater(EqnBase):
         return F
 
     def ausm_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the physical flux.
-
-        Args:
-            U_L (np.ndarray): Left conservative state [density, momentum, energy]
-            U_R (np.ndarray): Right conservative state [density, momentum, energy]
-
-        Returns:
-            np.ndarray: AUSM numerical flux
         """
-        if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
-            raise ValueError(f"All inputs must have shape ({self.num_vars},)")
-
-        # left state
-        hL, huL = self.to_primitive(U_L)
-        hL = np.maximum(hL, self.min_value)
-        uL = huL / hL
-        aL = np.sqrt(self.gravity * hL)
-        ML = uL / aL  # Mach
-
-        # right state
-        hR, huR = self.to_primitive(U_R)
-        hR = np.maximum(hR, self.min_value)
-        uR = huR / hR
-        aR = np.sqrt(self.gravity * hR)
-        MR = uR / aR
-
-        # Positive M and p in the LEFT cell
-        if ML <= -1:
-            Mp = 0
-            Pp = 0
-        elif ML < 1:
-            Mp = ((ML + 1) ** 2) / 4
-            Pp = pL * ((1 + ML) ** 2) * (2 - ML) / 4  # or Pp = (1 + ML) * pL / 2
-        else:
-            Mp = ML
-            Pp = pL
-
-        # Negative M and p in the RIGHT cell
-        if MR <= -1:
-            Mm = MR
-            Pm = pR
-        elif MR < 1:
-            Mm = -((MR - 1) ** 2) / 4
-            Pm = pR * ((1 - MR) ** 2) * (2 + MR) / 4  # or Pm = (1 - MR) * pR / 2
-        else:
-            Mm = 0
-            Pm = 0
-
-        # Positive Part of Flux evaluated in the left cell
-        MpMm = Mp + Mm
-        Fp = np.zeros(3)
-        Fp[0] = max(0, MpMm) * aL * rhoL
-        Fp[1] = max(0, MpMm) * aL * rhoL * uL + Pp
-        Fp[2] = max(0, MpMm) * aL * rhoL * HL
-
-        # Negative Part of Flux evaluated in the right cell
-        Fm = np.zeros(3)
-        Fm[0] = min(0, MpMm) * aR * rhoR
-        Fm[1] = min(0, MpMm) * aR * rhoR * uR + Pm
-        Fm[2] = min(0, MpMm) * aR * rhoR * HR
-
-        return Fp + Fm
-
-    def hlle_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """Compute the HLLC numerical flux for the shallow water equations.
+        Placeholder for AUSM flux. Currently not implemented for SWE.
 
         Args:
-            W_L (np.ndarray): Left primitive state [height, velocity], shape (2,).
-            W_R (np.ndarray): Right primitive state [height, velocity], shape (2,).
-            U_L (np.ndarray): Left conservative state [height, momentum], shape (2,).
-            U_R (np.ndarray): Right conservative state [height, momentum], shape (2,).
+            U_L (np.ndarray): Left conservative state.
+            U_R (np.ndarray): Right conservative state.
 
         Returns:
-            np.ndarray: HLLC numerical flux, shape (2,).
+            np.ndarray: An array of zeros.
+        """
+        # NOTE: This is a placeholder. A proper AUSM implementation for SWE
+        # would be more complex.
+        return np.zeros(self.num_vars)
+
+    def hllc_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """
+        Computes the HLLC numerical flux for the shallow water equations.
+
+        Args:
+            U_L (np.ndarray): Left conservative state [h, hu]_L.
+            U_R (np.ndarray): Right conservative state [h, hu]_R.
+
+        Returns:
+            np.ndarray: The HLLC numerical flux vector.
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")
@@ -327,17 +301,15 @@ class EqnShallowWater(EqnBase):
 
         return F
 
-    def hllc_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+    def hlle_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """Compute the HLLC numerical flux for the shallow water equations.
 
         Args:
-            W_L (np.ndarray): Left primitive state [height, velocity], shape (2,).
-            W_R (np.ndarray): Right primitive state [height, velocity], shape (2,).
-            U_L (np.ndarray): Left conservative state [height, momentum], shape (2,).
-            U_R (np.ndarray): Right conservative state [height, momentum], shape (2,).
+            U_L (np.ndarray): Left conservative state [h, hu]_L.
+            U_R (np.ndarray): Right conservative state [h, hu]_R.
 
         Returns:
-            np.ndarray: HLLC numerical flux, shape (2,).
+            np.ndarray: The HLLE numerical flux vector.
         """
         if any(arr.shape != (self.num_vars,) for arr in [U_L, U_R]):
             raise ValueError(f"All inputs must have shape ({self.num_vars},)")

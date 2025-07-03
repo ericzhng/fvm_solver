@@ -1,34 +1,51 @@
+"""
+This module defines the Limiter class, which provides a collection of slope
+limiters for use in MUSCL-type finite volume schemes to ensure stability and
+prevent spurious oscillations near discontinuities.
+"""
+
 import numpy as np
-from typing import Optional
 
 
 class Limiter:
     """
-    Slope limiter for MUSCL-type finite volume schemes.
+    A factory for various slope limiter functions used in high-resolution
+    finite volume methods.
 
-    Supports: minmod, superbee, van Leer, MC, Koren, Osher, Sweby, UMIST, and no limiting.
-    Limiters control spurious oscillations near discontinuities.
+    Slope limiters are essential for MUSCL-type schemes to enforce the Total
+    Variation Diminishing (TVD) property, preventing the formation of new
+    extrema in the solution and suppressing numerical oscillations (Gibbs'
+    phenomenon) that can occur near shocks or sharp gradients.
 
-    Args:
-        limiter_type (str): Limiter name ('minmod', 'superbee', 'vanleer', 'mc', 'koren', 'osher', 'sweby', 'umist', 'none').
-        beta (float): Sharpness parameter for Osher/Sweby (1 ≤ beta ≤ 2, default 1.5).
+    This class provides a unified interface to select and apply a limiter.
 
-    Raises:
-        ValueError: If limiter_type is invalid or beta is out of [1, 2].
+    Attributes:
+        name (str): The name of the selected limiter.
+        beta (float): A sharpness parameter used by certain limiters like
+                      Osher and Sweby, controlling their dissipative nature.
+        limiters (dict): A dictionary mapping limiter names to their
+                         corresponding implementation methods.
     """
 
     def __init__(self, str_limiter: str = "minmod", beta: float = 1.5):
-        """Initialize the limiter.
+        """
+        Initializes the Limiter object.
 
         Args:
-            limiter_type (str): Type of limiter ('minmod', 'superbee', 'vanleer', 'mc', 'koren', 'osher', 'sweby', 'umist', 'none').
-            beta (float, optional): Sharpness parameter for Osher/Sweby (default: 1.5).
+            str_limiter (str, optional): The name of the limiter to use.
+                Supported options include 'minmod', 'superbee', 'vanleer',
+                'mc', 'koren', 'osher', 'sweby', 'umist', and 'none'.
+                Defaults to "minmod".
+            beta (float, optional): The sharpness parameter for limiters that
+                support it (e.g., Osher, Sweby). Must be in the range [1, 2].
+                Defaults to 1.5.
 
         Raises:
-            ValueError: If limiter_type is unsupported or beta is out of range [1, 2].
+            ValueError: If an unsupported `str_limiter` is provided.
         """
         self.name = str_limiter.lower()
-        self.beta = max(1.0, min(2.0, beta))  # Ensure beta in [1, 2]
+        # Clamp beta to the valid range [1.0, 2.0]
+        self.beta = max(1.0, min(2.0, beta))
 
         self.limiters = {
             "minmod": self.minmod,
@@ -42,21 +59,22 @@ class Limiter:
             "none": self.no_limiter,
         }
 
-        if self.name not in self.limiters.keys():
+        if self.name not in self.limiters:
+            valid_limiters = list(self.limiters.keys())
             raise ValueError(
-                f"Unsupported limiter: {self.name}. Choose from {list(self.limiters.keys())}"
+                f"Unsupported limiter: '{self.name}'. " f"Choose from {valid_limiters}"
             )
 
     def limiter_func(self, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
         """
-        Apply the selected limiter to two slope arrays.
+        Applies the selected limiter function to a ratio of successive gradients.
 
         Args:
             a (np.ndarray): First slope (e.g., left/forward difference).
             b (np.ndarray): Second slope (e.g., right/backward difference).
 
         Returns:
-            np.ndarray: Limited slope, same shape as input.
+            np.ndarray: The limited slope correction factor, φ(r).
         """
         # Vectorized application of limiter
         if self.name == "mc":
@@ -67,31 +85,15 @@ class Limiter:
 
     def minmod(self, a: float, b: float) -> float:
         """
-        Minmod limiter (most dissipative).
-
-        Returns min(|a|, |b|) * sign(a) if a and b have the same sign, else 0.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope.
-
-        Returns:
-            float: Limited slope.
+        The Minmod limiter. It is the most dissipative of the common limiters.
+        φ(r) = max(0, min(1, r))
         """
         return np.sign(a) * min(abs(a), abs(b)) if a * b > 0 else 0.0
 
     def superbee(self, a: float, b: float) -> float:
         """
-        Superbee limiter (least dissipative).
-
-        Returns max(min(2|a|, |b|), min(|a|, 2|b|)) * sign(a) if a and b have the same sign, else 0.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope.
-
-        Returns:
-            float: Limited slope.
+        The Superbee limiter. It is one of the least dissipative limiters.
+        φ(r) = max(0, min(2r, 1), min(r, 2))
         """
         return (
             np.sign(a) * max(min(2 * abs(a), abs(b)), min(abs(a), 2 * abs(b)))
@@ -101,93 +103,43 @@ class Limiter:
 
     def van_leer(self, a: float, b: float) -> float:
         """
-        Van Leer limiter (smooth, harmonic mean).
-
-        Returns 2ab/(a+b) if a and b have the same sign, else 0.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope.
-
-        Returns:
-            float: Limited slope.
+        The Van Leer limiter, a smooth choice.
+        φ(r) = (r + |r|) / (1 + |r|)
         """
         return 2 * a * b / (a + b + 1e-10) if a * b > 0 else 0.0
 
     def mc(self, a: float, b: float, c: float) -> float:
         """
-        Monotonized Central (MC) limiter.
-
-        Returns max(0, min((a+b)/2, 2a, 2b)) if a and b have the same sign, else 0.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope.
-
-        Returns:
-            float: Limited slope.
+        The Monotonized Central (MC) limiter.
+        φ(r) = max(0, min((1+r)/2, 2, 2r))
         """
         return max(0, min((a + b) / 2, 2 * a, 2 * b)) if a * b > 0 else 0.0
 
     def koren(self, a: float, b: float) -> float:
         """
-        Koren limiter (third-order in smooth regions).
-
-        Returns max(0, min(2a, (2a+b)/3, 2b)) if a and b have the same sign, else 0.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope.
-
-        Returns:
-            float: Limited slope.
+        The Koren limiter, which is third-order accurate in smooth regions.
+        φ(r) = max(0, min(2r, (1+2r)/3, 2))
         """
         return max(0, min(2 * a, (2 * a + b) / 3, 2 * b)) if a * b > 0 else 0.0
 
     def osher(self, a: float, b: float, beta: float) -> float:
         """
-        Osher limiter (adjustable sharpness).
-
-        Returns max(0, min(a, beta*b)) if a and b have the same sign, else 0.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope.
-            beta (float): Sharpness parameter (1 to 2).
-
-        Returns:
-            float: Limited slope.
+        The Osher limiter, with an adjustable sharpness parameter β.
+        φ(r) = max(0, min(r, β))
         """
         return max(0, min(a, beta * b)) if a * b > 0 else 0.0
 
     def sweby(self, a: float, b: float, beta: float) -> float:
         """
-        Sweby limiter (tunable between minmod and superbee).
-
-        Returns max(0, min(beta*a, b), min(a, beta*b)) if a and b have the same sign, else 0.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope.
-            beta (float): Sharpness parameter (1 to 2).
-
-        Returns:
-            float: Limited slope.
+        The Sweby limiter, tunable between other limiters via parameter β.
+        φ(r) = max(0, min(βr, 1), min(r, β))
         """
         return max(0, min(beta * a, b), min(a, beta * b)) if a * b > 0 else 0.0
 
     def umist(self, a: float, b: float) -> float:
         """
-        UMIST limiter (smooth, similar to Koren).
-
-        Returns max(0, min(2a, (a+3b)/4, (3a+b)/4, 2b)) if a and b have the same sign, else 0.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope.
-
-        Returns:
-            float: Limited slope.
+        The UMIST limiter, a smooth and symmetric choice.
+        φ(r) = max(0, min(2r, (1+3r)/4, (3+r)/4, 2))
         """
         return (
             max(0, min(2 * a, (a + 3 * b) / 4, (3 * a + b) / 4, 2 * b))
@@ -197,13 +149,8 @@ class Limiter:
 
     def no_limiter(self, a: float, b: float) -> float:
         """
-        No limiter: returns the first slope unchanged.
-
-        Args:
-            a (float): First slope.
-            b (float): Second slope (ignored).
-
-        Returns:
-            float: Unchanged first slope.
+        A pass-through function that applies no limiting. Equivalent to a
+        higher-order, non-TVD scheme.
+        φ(r) = r
         """
         return a

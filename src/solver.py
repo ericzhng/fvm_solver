@@ -1,3 +1,7 @@
+"""
+This module defines the main Solver class for the 1D finite volume framework.
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from .equation.equation_base import EqnBase
@@ -6,10 +10,32 @@ from .reconstruction import Reconstruction
 
 
 class Solver:
-    """Godunov-type solver for hyperbolic conservation laws in 1D (extensible to 2D/3D).
+    """
+    A Godunov-type finite volume solver for 1D hyperbolic conservation laws.
 
-    Integrates systems using specified flux, reconstruction, and boundary conditions.
-    Supports ASCII output and convergence monitoring.
+    This class orchestrates the numerical solution of a given hyperbolic system.
+    It integrates the solution in time using a specified time integration scheme
+    (e.g., Euler forward, RK2) and manages the core steps of a finite volume
+    method: boundary condition enforcement, spatial reconstruction, and numerical
+    flux calculation.
+
+    Attributes:
+        bc_obj (BoundaryCondition): The boundary condition handler.
+        mesh_obj (np.ndarray): The 1D spatial grid.
+        equation (EqnBase): The equation system being solved.
+        reconst_obj (Reconstruction): The spatial reconstruction handler.
+        cfl (float): The Courant-Friedrichs-Lewy (CFL) number for stability.
+        max_iterations (int): The maximum number of time steps to perform.
+        convergence_tol (float): The tolerance for the solution residual to
+                                 determine convergence.
+        output_filename (str): The name of the file for solution output.
+        num_vars (int): The number of variables in the system.
+        variable_names (list[str]): The names of the primitive variables.
+        n_ghost (int): The number of ghost cells on each side of the domain.
+        n_cells (int): The number of computational cells.
+        n_cells_total (int): The total number of cells including ghost cells.
+        dx (np.ndarray): Array of cell widths for the computational domain.
+        dx_aug (np.ndarray): Array of cell widths for the augmented domain.
     """
 
     def __init__(
@@ -24,36 +50,39 @@ class Solver:
         convergence_tol: float = 1e-6,
         output_filename: str = "solution.dat",
     ):
-        """Initialize the solver for 1D/2D/3D hyperbolic systems.
+        """
+        Initializes the finite volume solver.
 
         Args:
-            equation (EquationBase): The equation system to solve.
-            bc_obj (BoundaryCondition): Boundary condition handler.
-            grid (np.ndarray): Spatial grid points (1D) or meshgrid (2D/3D).
-            cfl (float): CFL number for time step control.
-            max_iterations (int): Maximum number of time steps.
-            convergence_tol (float): Tolerance for convergence check.
-            output_filename (str): File for ASCII solution output.
-
-        Raises:
-            TypeError: If equation or bc_obj is invalid.
-            ValueError: If flux, reconstruction, cfl, or max_iterations is invalid.
+            eqn_obj (EqnBase): An instance of an equation class.
+            bc_obj (BoundaryCondition): An instance of the boundary condition handler.
+            mesh_obj (np.ndarray): A 1D array representing the spatial grid.
+            reconst_obj (Reconstruction): An instance of the reconstruction handler.
+            n_ghost (int, optional): The number of ghost cells. Defaults to 2.
+            cfl (float, optional): The CFL number for time step calculation.
+                                   Must be between 0 and 1. Defaults to 0.5.
+            max_iterations (int, optional): Maximum number of iterations.
+                                          Defaults to 10000.
+            convergence_tol (float, optional): Residual tolerance for convergence.
+                                               Defaults to 1e-6.
+            output_filename (str, optional): File to save the solution history.
+                                             Defaults to "solution.dat".
         """
+        # Validate input types
         if not isinstance(eqn_obj, EqnBase):
-            raise TypeError("equation must be an EquationBase instance")
+            raise TypeError("eqn_obj must be an instance of EqnBase.")
         if not isinstance(bc_obj, BoundaryCondition):
-            raise TypeError("bc_obj must be a BoundaryCondition instance")
+            raise TypeError("bc_obj must be a BoundaryCondition instance.")
         if not isinstance(mesh_obj, np.ndarray):
-            raise TypeError("mesh_obj must be a ndarray")
+            raise TypeError("mesh_obj must be a NumPy array.")
         if not isinstance(reconst_obj, Reconstruction):
-            raise TypeError("reconst_obj must be a Reconstruction instance")
+            raise TypeError("reconst_obj must be a Reconstruction instance.")
 
-        if cfl > 1 or cfl <= 0:
-            raise ValueError("cfl must be within [0, 1]")
+        # Validate input values
+        if not (0 < cfl <= 1):
+            raise ValueError("CFL number must be in the range (0, 1].")
         if max_iterations <= 0:
-            raise ValueError("max_iterations must be positive")
-        if convergence_tol <= 0:
-            raise ValueError("convergence_tolerance must be positive")
+            raise ValueError("max_iterations must be a positive integer.")
 
         self.bc_obj = bc_obj
         self.mesh_obj = mesh_obj
@@ -83,93 +112,68 @@ class Solver:
         self.dx_aug = dx_aug
 
     def print_info(self):
-        """Print useful information about the solver configuration and setup."""
-
+        """Prints a summary of the solver's configuration."""
         print("========================================")
-        print("Solver Information:")
-        print(f"  Equation system: {type(self.equation).__name__}")
-        print(
-            f"  Number of variables: {self.num_vars} ({', '.join(self.variable_names)})"
-        )
-        print(f"  Mesh points: {self.mesh_obj.size}")
-        print(f"  Number of cells: {self.n_cells}")
-        print(f"  Number of ghost cells: {self.n_ghost}")
-        print(
-            f"  Reconstruction: {type(self.reconst_obj).__name__} ({getattr(self.reconst_obj, 'name', 'unknown')})"
-        )
-        print(
-            f"  Flux: {type(self.reconst_obj.flux_obj).__name__} ({getattr(self.reconst_obj.flux_obj, 'name', 'unknown')})"
-        )
-        print(
-            f"  Limiter: {type(self.reconst_obj.limiter_obj).__name__} ({getattr(self.reconst_obj.limiter_obj, 'name', 'unknown')})"
-        )
-        print(f"  CFL number: {self.cfl}")
-        print(f"  Max iterations: {self.max_iterations}")
-        print(f"  Convergence tolerance: {self.convergence_tol}")
-        print(f"  Output file: {self.output_filename}")
-        print(
-            f"  dx (cell widths): min={np.min(self.dx):.3e}, max={np.max(self.dx):.3e}, mean={np.mean(self.dx):.3e}"
-        )
+        print("      Finite Volume Solver Setup      ")
+        print("========================================")
+        print(f"  Equation System:    {type(self.equation).__name__}")
+        print(f"  Variables:          {', '.join(self.variable_names)}")
+        print(f"  Grid Cells:         {self.n_cells}")
+        print(f"  Ghost Cells:        {self.n_ghost}")
+        print(f"  Reconstruction:     {self.reconst_obj.name}")
+        print(f"  Numerical Flux:     {self.reconst_obj.flux_obj.name}")
+        if self.reconst_obj.limiter_obj:
+            print(f"  Slope Limiter:      {self.reconst_obj.limiter_obj.name}")
+        print(f"  CFL Number:         {self.cfl}")
+        print(f"  Max Iterations:     {self.max_iterations}")
+        print(f"  Convergence Tol:    {self.convergence_tol}")
+        print(f"  Output File:        {self.output_filename}")
         print("========================================")
 
-    # function to augment the grid with ghost cells
     def augment_vars(self, U: np.ndarray) -> np.ndarray:
-        """Augment conservative variables with ghost cells.
+        """
+        Adds ghost cell placeholders to a conservative variable array.
 
         Args:
-            U (np.ndarray): Conservative variables, shape (n_vars, n_cells).
+            U (np.ndarray): The conservative variable array for the main domain.
+                            Shape: (num_vars, n_cells).
 
         Returns:
-            np.ndarray: Augmented conservative variables with ghost cells.
+            np.ndarray: An augmented array with space for ghost cells.
+                        Shape: (num_vars, n_cells + 2 * n_ghost).
         """
-        if U.ndim != 2 or U.shape[0] != self.num_vars or U.shape[1] != self.n_cells:
-            raise ValueError(f"U must have shape ({self.num_vars}, {self.n_cells})")
-
+        if U.shape != (self.num_vars, self.n_cells):
+            raise ValueError(
+                f"Input U must have shape ({self.num_vars}, {self.n_cells})"
+            )
         U_aug = np.zeros((self.num_vars, self.n_cells_total))
         U_aug[:, self.n_ghost : self.n_ghost + self.n_cells] = U
         return U_aug
 
     def de_augment_vars(self, U_aug: np.ndarray) -> np.ndarray:
-        """Remove ghost cells from augmented conservative variables.
+        """
+        Removes ghost cells from an augmented conservative variable array.
 
         Args:
-            U_aug (np.ndarray): Augmented conservative variables, shape (n_vars, n_cells_total).
+            U_aug (np.ndarray): The augmented array with ghost cells.
 
         Returns:
-            np.ndarray: Conservative variables without ghost cells.
+            np.ndarray: The array for the main computational domain.
         """
-        if (
-            U_aug.ndim != 2
-            or U_aug.shape[0] != self.num_vars
-            or U_aug.shape[1] != self.n_cells_total
-        ):
-            raise ValueError(
-                f"U_aug must have shape ({self.num_vars}, {self.n_cells_total})"
-            )
-
-        return U_aug[:, self.n_ghost : self.n_ghost + self.n_cells]
+        return U_aug[:, self.n_ghost : -self.n_ghost]
 
     def compute_dt(self, U_aug: np.ndarray) -> float:
-        """Compute time step based on CFL condition for 1D/2D/3D grids.
+        """
+        Computes the time step size (dt) based on the CFL condition.
+
+        dt = CFL * min(dx_i / |λ_max|_i)
 
         Args:
-            U (np.ndarray): Conservative variables, shape (n_vars, n_cells) or higher for 2D/3D.
+            U_aug (np.ndarray): The augmented conservative variable array.
 
         Returns:
-            float: Time step size.
-
-        Raises:
-            ValueError: If grid or U shape is invalid.
+            float: The stable time step size.
         """
-        if (
-            U_aug.ndim < 2
-            or U_aug.shape[0] != self.num_vars
-            or U_aug.shape[1] != self.n_cells_total
-        ):
-            raise ValueError(
-                f"U must have shape ({self.num_vars}, {self.n_cells_total})"
-            )
-
         dx = self.dx_aug
 
         W_aug = self.equation.to_primitive_batch(U_aug)
@@ -192,12 +196,13 @@ class Solver:
         return adaptive_cfl * min_value
 
     def save_solution(self, U: np.ndarray, t: float, step: int):
-        """Save solution to ASCII file for each time step.
+        """
+        Saves the current solution state to the output file.
 
         Args:
-            U (np.ndarray): Conservative variables, shape (n_vars, n_cells, ...).
-            t (float): Current time.
-            step (int): Time step index.
+            U (np.ndarray): The conservative variables for the main domain.
+            t (float): The current simulation time.
+            step (int): The current iteration number.
         """
         W = self.equation.to_primitive_batch(U)
         grid = self.mesh_obj
@@ -220,31 +225,30 @@ class Solver:
                     )
             f.write("\n")
 
-    def solve(self, U0: np.ndarray, T: float, time_integration_method: str) -> tuple:
+    def solve(
+        self, U0: np.ndarray, T: float, time_integration_method: str
+    ) -> tuple[np.ndarray, float]:
         """
-        Solve the hyperbolic system until time T in 1D/2D/3D.
+        The main solver loop.
 
-        Uses Godunov-type method with specified flux, reconstruction, and boundary conditions.
-        Saves solution to ASCII file and monitors convergence.
+        Integrates the solution from t=0 to t=T using the specified method.
 
         Args:
-            U0 (np.ndarray): Initial conservative variables, shape (n_vars, n_cells + 2 * n_ghost, ...).
-            T (float): Final simulation time.
+            U0 (np.ndarray): The initial condition for the conservative variables.
+                             Shape: (num_vars, n_cells).
+            T (float): The final simulation time.
+            time_integration_method (str): The time integration scheme to use.
+                                           Supported: 'euler', 'rk2'.
 
         Returns:
-            tuple: (history, t), where history is array of states [n_steps, n_vars, n_cells, ...], t is final time.
-
-        Raises:
-            ValueError: If inputs are invalid or n_ghost is insufficient.
-            RuntimeError: If solution does not converge within max_iterations or tolerance.
+            tuple[np.ndarray, float]: A tuple containing the solution history
+                                      and the final simulation time.
         """
         if T < 0:
-            raise ValueError("T must be non-negative")
-        if self.mesh_obj.ndim == 1 and self.mesh_obj.size < 3:
-            raise ValueError("Grid must have at least 2 cells (3 points)")
-        if U0.ndim < 2 or U0.shape[0] != self.num_vars or U0.shape[1] != self.n_cells:
+            raise ValueError("Final time T must be non-negative.")
+        if U0.shape != (self.num_vars, self.n_cells):
             raise ValueError(
-                f"U0 must be argumented and have shape ({self.num_vars}, {self.n_cells_total}, ...)"
+                f"Initial condition U0 must have shape ({self.num_vars}, {self.n_cells})"
             )
 
         min_ghost = 2 if self.reconst_obj.name in ["ppm", "weno5"] else 1
@@ -294,17 +298,13 @@ class Solver:
 
             # raise error if not the above
             else:
-                raise RuntimeError(
-                    f"time integration_method method {time_integration_method} not implemented yet"
+                raise NotImplementedError(
+                    f"Time integration method '{time_integration_method}' is not supported."
                 )
 
-            # Check residual for possible convergence
-            normU = np.linalg.norm(U)
-            residual = (
-                np.linalg.norm(U_new - U) / normU
-                if normU > 0
-                else np.linalg.norm(U_new)
-            )
+            # --- Convergence & Output --- #
+            norm_U = np.linalg.norm(self.de_augment_vars(U))
+            residual = np.linalg.norm(self.de_augment_vars(U_new - U)) / (norm_U + 1e-9)
 
             U = U_new
 
@@ -329,24 +329,21 @@ class Solver:
 
             # Check convergence tolerance
             if residual < self.convergence_tol:
-                print(f"Converged at step {n}, residual {residual:.6e}")
+                print("\nConvergence criteria met.")
                 break
 
-        print(f"\nSimulation completed after {n} steps, final time {t:.6f} s")
+        print(f"\nSimulation finished at t={t:.4f}s after {n} iterations.")
         return np.array(history), t
 
     def plot_solution(self, history: np.ndarray, t: float, variable: str = ""):
-        """Plot the solution at the final time for 1D (2D/3D plotting not implemented).
-
-        Only the last snapshot is shown.
+        """
+        Plots the solution at the final time step.
 
         Args:
-            history (np.ndarray): Solution history, shape (n_steps, n_vars, n_cells, ...).
-            t (float): Final time.
-            variable (str): Variable to plot (optional, default: all variables).
-
-        Raises:
-            ValueError: If variable is invalid or history shape is incorrect.
+            history (np.ndarray): The solution history from the solve method.
+            t (float): The final simulation time.
+            variable (str, optional): The name of a specific variable to plot.
+                                      If empty, all variables are plotted.
         """
         x = self.mesh_obj
         if history.ndim < 3 or history.shape[1] != self.num_vars:

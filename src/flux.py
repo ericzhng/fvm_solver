@@ -1,142 +1,156 @@
+"""
+This module defines the Flux class, which provides a unified interface for various
+numerical flux schemes used in the FVM solver.
+"""
+
 import numpy as np
 from .equation.equation_base import EqnBase
 
 
 class Flux:
-    """Compute numerical fluxes for hyperbolic conservation laws.
+    """
+    Computes numerical fluxes for hyperbolic conservation laws.
 
-    Supports: Lax-Friedrichs, Rusanov, FORCE, HLL, HLLC, Roe.
+    This class acts as a factory for different numerical flux functions.
+    It takes an equation object and a flux type string, and provides a
+    callable method to compute the requested numerical flux at cell interfaces.
+
+    Supported flux schemes:
+    - 'lax': Lax-Friedrichs
+    - 'rusanov': Rusanov (or local Lax-Friedrichs)
+    - 'force': First-Order Centered (FORCE) scheme
+    - 'ausm': Advection Upstream Splitting Method (delegated to equation class)
+    - 'hll': Harten-Lax-van Leer
+    - 'hlle': Harten-Lax-van Leer-Einfeldt (delegated to equation class)
+    - 'hllc': Harten-Lax-van Leer-Contact (delegated to equation class)
+    - 'roe': Roe's approximate Riemann solver (delegated to equation class)
     """
 
     def __init__(self, eqn_obj: EqnBase, str_flux: str, lambda_max: float = 1.0):
         """
+        Initializes the Flux computer.
+
         Args:
-            eqn_obj (EquationBase): The equation system to compute fluxes for.
-            lambda_max (float): Maximum wave speed for Lax-Friedrichs (default: 1.0).
+            eqn_obj (EqnBase): The equation system object (e.g., EqnEuler) for
+                                which fluxes will be computed.
+            str_flux (str): The name of the numerical flux scheme to use.
+            lambda_max (float, optional): A global maximum wave speed, used by
+                                         the Lax-Friedrichs scheme. Defaults to 1.0.
         """
         self.eqn_obj = eqn_obj
         self.min_value = eqn_obj.min_value
         self.vel_idx = eqn_obj.vel_idx
-        self.lambda_max = lambda_max or 1.0
-        self.name = str_flux
+        self.lambda_max = lambda_max
+        self.name = str_flux.lower()
 
+        # Dictionary mapping flux names to their corresponding methods
         self.flux_dicts = {
-            "lax": self.LF,  # Lax-Friedrichs
-            "rusanov": self.RUS,
-            "force": self.FORCE,
-            "ausm": self.AUSM,
-            "hll": self.HLL,
-            "hlle": self.HLLE,
-            "hllc": self.HLLC,
-            "roe": self.ROE,
+            "lax": self.lax_friedrichs,
+            "rusanov": self.rusanov,
+            "force": self.force,
+            "ausm": self.ausm,
+            "hll": self.hll,
+            "hlle": self.hlle,
+            "hllc": self.hllc,
+            "roe": self.roe,
         }
 
         if self.name not in self.flux_dicts:
+            valid_fluxes = list(self.flux_dicts.keys())
             raise ValueError(
-                f"Unsupported flux type: {self.name}. Choose from {list(self.flux_dicts.keys())}"
+                f"Unsupported flux type: '{self.name}'. " f"Choose from {valid_fluxes}"
             )
 
     def flux_func(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """
-        Return the specified flux method.
+        Computes the numerical flux between two states using the selected scheme.
 
         Args:
-            flux_type (str): Type of flux ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe').
+            U_L (np.ndarray): The conservative state vector at the left of the interface.
+            U_R (np.ndarray): The conservative state vector at the right of the interface.
 
         Returns:
-            callable: The flux computation function.
-
-        Raises:
-            ValueError: If flux_type is not supported.
+            np.ndarray: The computed numerical flux vector.
         """
         return self.flux_dicts[self.name](U_L, U_R)
 
-    def LF(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+    def lax_friedrichs(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """
-        Compute Lax-Friedrichs flux.
+        Computes the Lax-Friedrichs (LF) numerical flux.
 
-        F = 0.5 * (FL + FR - lambda_max * (U_R - U_L))
+        F_LF = 0.5 * (F(U_L) + F(U_R)) - 0.5 * λ_max * (U_R - U_L)
 
         Args:
             U_L (np.ndarray): Left conservative state.
             U_R (np.ndarray): Right conservative state.
 
         Returns:
-            np.ndarray: Numerical flux.
+            np.ndarray: The Lax-Friedrichs numerical flux.
         """
-        FL = self.eqn_obj.compute_flux(U_L)
-        FR = self.eqn_obj.compute_flux(U_R)
+        F_L = self.eqn_obj.compute_flux(U_L)
+        F_R = self.eqn_obj.compute_flux(U_R)
+        return 0.5 * (F_L + F_R - self.lambda_max * (U_R - U_L))
 
-        return 0.5 * (FL + FR - self.lambda_max * (U_R - U_L))
-
-    def RUS(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+    def rusanov(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """
-        Compute Rusanov flux.
+        Computes the Rusanov (or local Lax-Friedrichs) numerical flux.
 
-        F = 0.5 * (FL + FR - smax * (U_R - U_L))
-
-            Args:
-            U_L (np.ndarray): Left conservative state.
-            U_R (np.ndarray): Right conservative state.
-
-        Returns:
-            np.ndarray: Numerical flux.
-        """
-        FL = self.eqn_obj.compute_flux(U_L)
-        FR = self.eqn_obj.compute_flux(U_R)
-
-        # Local maximum wave speed
-        a_roe, u_roe = self.eqn_obj.roe_average(U_L, U_R)
-        smax = abs(u_roe) + a_roe
-
-        return 0.5 * (FL + FR - smax * (U_R - U_L))
-
-    def FORCE(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
-        """
-        Compute FORCE flux (average of Lax-Friedrichs and Richtmyer).
+        F_Rusanov = 0.5 * (F(U_L) + F(U_R)) - 0.5 * s_max * (U_R - U_L)
 
         Args:
             U_L (np.ndarray): Left conservative state.
             U_R (np.ndarray): Right conservative state.
 
         Returns:
-            np.ndarray: Numerical flux.
+            np.ndarray: The Rusanov numerical flux.
         """
-        FL = self.eqn_obj.compute_flux(U_L)
-        FR = self.eqn_obj.compute_flux(U_R)
+        F_L = self.eqn_obj.compute_flux(U_L)
+        F_R = self.eqn_obj.compute_flux(U_R)
+
+        # Local maximum wave speed at the interface
+        s_max = max(self.eqn_obj.max_eigenvalue(U_L), self.eqn_obj.max_eigenvalue(U_R))
+
+        return 0.5 * (F_L + F_R - s_max * (U_R - U_L))
+
+    def force(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+        """
+        Computes the FORCE (First-Order Centered) numerical flux.
+        This is an average of the Lax-Friedrichs and Richtmyer fluxes.
+
+        Args:
+            U_L (np.ndarray): Left conservative state.
+            U_R (np.ndarray): Right conservative state.
+
+        Returns:
+            np.ndarray: The FORCE numerical flux.
+        """
+        F_L = self.eqn_obj.compute_flux(U_L)
+        F_R = self.eqn_obj.compute_flux(U_R)
 
         # Local maximum wave speed
-        a_roe, u_roe = self.eqn_obj.roe_average(U_L, U_R)
-        smax = abs(u_roe) + a_roe
-
-        # uL = self.eqn_obj.to_primitive(U_L)[self.vel_idx]
-        # uR = self.eqn_obj.to_primitive(U_R)[self.vel_idx]
-        # smax = max(
-        #     uL + self.eqn_obj.sound_speed(U_L),
-        #     uR + self.eqn_obj.sound_speed(U_R),
-        # )
+        s_max = max(self.eqn_obj.max_eigenvalue(U_L), self.eqn_obj.max_eigenvalue(U_R))
 
         # Lax-Friedrichs component
-        F_LF = 0.5 * (FL + FR - smax * (U_R - U_L))
+        F_LF = 0.5 * (F_L + F_R - s_max * (U_R - U_L))
 
-        # Richtmyer component
-        U_mid = 0.5 * (U_L + U_R) - 0.5 * (FR - FL) / max(smax, self.min_value)
+        # Richtmyer component (two-step Lax-Wendroff)
+        U_mid = 0.5 * (U_L + U_R) - 0.5 * (F_R - F_L) / max(s_max, self.min_value)
         F_Richtmyer = self.eqn_obj.compute_flux(U_mid)
 
         return 0.5 * (F_LF + F_Richtmyer)
 
-    def HLL(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+    def hll(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """
-        Compute HLL flux.
+        Computes the Harten-Lax-van Leer (HLL) numerical flux.
 
-        F = (SR * FL - SL * FR + SL * SR * (U_R - U_L)) / (SR - SL)
+        F_HLL = (S_R*F_L - S_L*F_R + S_L*S_R*(U_R - U_L)) / (S_R - S_L)
 
         Args:
             U_L (np.ndarray): Left conservative state.
             U_R (np.ndarray): Right conservative state.
 
         Returns:
-            np.ndarray: Numerical flux.
+            np.ndarray: The HLL numerical flux.
         """
         uL = self.eqn_obj.to_primitive(U_L)[self.vel_idx]
         uR = self.eqn_obj.to_primitive(U_R)[self.vel_idx]
@@ -159,54 +173,54 @@ class Flux:
         HLL = (SR * FL - SL * FR + SL * SR * (U_R - U_L)) / max(SR - SL, self.min_value)
         return HLL
 
-    def AUSM(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+    def ausm(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """
-        Compute AUSM flux.
+        Delegates AUSM flux computation to the specific equation class.
 
         Args:
             U_L (np.ndarray): Left conservative state.
             U_R (np.ndarray): Right conservative state.
 
         Returns:
-            np.ndarray: Numerical flux.
+            np.ndarray: The AUSM numerical flux.
         """
         return self.eqn_obj.ausm_flux(U_L, U_R)
 
-    def HLLC(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+    def hllc(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """
-        Compute HLLC flux.
+        Delegates HLLC flux computation to the specific equation class.
 
         Args:
             U_L (np.ndarray): Left conservative state.
             U_R (np.ndarray): Right conservative state.
 
         Returns:
-            np.ndarray: Numerical flux.
+            np.ndarray: The HLLC numerical flux.
         """
         return self.eqn_obj.hllc_flux(U_L, U_R)
 
-    def HLLE(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+    def hlle(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """
-        Compute HLLC flux.
+        Delegates HLLE flux computation to the specific equation class.
 
         Args:
             U_L (np.ndarray): Left conservative state.
             U_R (np.ndarray): Right conservative state.
 
         Returns:
-            np.ndarray: Numerical flux.
+            np.ndarray: The HLLE numerical flux.
         """
         return self.eqn_obj.hlle_flux(U_L, U_R)
 
-    def ROE(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
+    def roe(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """
-        Compute Roe flux with entropy fix.
+        Delegates Roe flux computation to the specific equation class.
 
         Args:
             U_L (np.ndarray): Left conservative state.
             U_R (np.ndarray): Right conservative state.
 
         Returns:
-            np.ndarray: Numerical flux.
+            np.ndarray: The Roe numerical flux.
         """
         return self.eqn_obj.roe_flux(U_L, U_R)

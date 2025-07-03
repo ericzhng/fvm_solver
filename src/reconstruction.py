@@ -1,3 +1,9 @@
+"""
+This module defines the Reconstruction class, which handles the spatial
+reconstruction of cell-averaged data to the cell interfaces, a key step in
+high-resolution finite volume methods.
+"""
+
 import numpy as np
 from .equation.equation_base import EqnBase
 from .limiter import Limiter
@@ -6,17 +12,27 @@ from .flux import Flux
 
 class Reconstruction:
     """
-    Handles reconstruction methods for finite volume schemes in 1D.
+    Manages spatial reconstruction methods for 1D finite volume schemes.
 
-    Supports piecewise constant and MUSCL methods; extensible to PPM and WENO5.
-    Maintains ghost cells in reconstructed states.
+    This class provides different strategies to reconstruct the solution values
+    from cell centers to their interfaces. This is a crucial step for achieving
+    higher-order accuracy. It supports simple first-order (piecewise constant)
+    and second-order MUSCL (Monotone Upstream-centered Schemes for Conservation
+    Laws) reconstructions.
 
-    Args:
-        equation (EquationBase): System for state conversions.
-        str_domain (str): Reconstruction in primitive or conservative.
-        str_flux (str): Flux method ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe').
-        str_limiter (str, optional): Slope limiter type ('minmod', 'superbee', 'vanleer', etc.).
-        limiter_beta (float, optional): Sharpness parameter for Osher/Sweby limiters.
+    The reconstruction can be performed on either primitive or conservative
+    variables, as specified by the user.
+
+    Attributes:
+        equation (EqnBase): The equation system object, used for state conversions.
+        name (str): The name of the reconstruction method (e.g., 'constant', 'muscl').
+        in_primitive_domain (bool): If True, reconstruction is performed on
+                                    primitive variables; otherwise, on conservative.
+        limiter_obj (Limiter | None): An instance of the Limiter class, used for
+                                      slope limiting in MUSCL reconstruction.
+        flux_obj (Flux): An instance of the Flux class to compute numerical fluxes.
+        n_vars (int): The number of variables in the equation system.
+        reconst_dicts (dict): Maps reconstruction names to their methods.
     """
 
     def __init__(
@@ -28,54 +44,73 @@ class Reconstruction:
         str_limiter: str = "",
         limiter_beta: float = 1.5,
     ):
+        """
+        Initializes the Reconstruction handler.
+
+        Args:
+            eqn_obj (EqnBase): The equation system object.
+            str_reconst (str, optional): The reconstruction method to use.
+                Supported: 'constant', 'muscl'. Defaults to "constant".
+            str_domain (str, optional): The domain for reconstruction.
+                Supported: 'primitive', 'conservative'. Defaults to "primitive".
+            str_flux (str, optional): The numerical flux scheme to use.
+                Defaults to "hllc".
+            str_limiter (str, optional): The slope limiter for MUSCL.
+                Defaults to "", which implies no limiting (central difference).
+            limiter_beta (float, optional): Sharpness parameter for certain limiters.
+                Defaults to 1.5.
+        """
         if not isinstance(eqn_obj, EqnBase):
-            raise TypeError("equation must be an EquationBase instance")
+            raise TypeError("eqn_obj must be an instance of EqnBase.")
 
         self.equation = eqn_obj
-        self.name = str_reconst
-        self.in_primitive_domain = str_domain == "primitive"
+        self.name = str_reconst.lower()
+        self.in_primitive_domain = str_domain.lower() == "primitive"
         self.limiter_obj = (
             Limiter(str_limiter, beta=limiter_beta) if str_limiter else None
         )
-        self.flux_obj = Flux(self.equation, str_flux, lambda_max=1.0)
-
+        self.flux_obj = Flux(self.equation, str_flux)
         self.n_vars = self.equation.num_vars
 
         self.reconst_dicts = {
-            "constant": self.PIECEWISE_CONSTANT,  # Lax-Friedrichs
-            "muscl": self.MUSCL,
-            # "ppm": self.PPM,
-            # "weno": self.weno,
+            "constant": self.piecewise_constant,
+            "muscl": self.muscl,
+            # "ppm": self.ppm,  # Future extension
+            # "weno": self.weno, # Future extension
         }
 
         if self.name not in self.reconst_dicts:
+            valid_reconst = list(self.reconst_dicts.keys())
             raise ValueError(
-                f"Unsupported flux type: {self.name}. Choose from {list(self.reconst_dicts.keys())}"
+                f"Unsupported reconstruction type: '{self.name}'. "
+                f"Choose from {valid_reconst}"
             )
 
     def reconst_func(self, U: np.ndarray, dx: np.ndarray) -> np.ndarray:
         """
-        Return the specified flux method.
+        Calls the selected reconstruction method to compute the flux residual.
 
         Args:
-            U (np.ndarray): Conservative variables, shape (num_vars, n_cells + 2*n_ghost, ...).
-            dx (np.ndarray): Spatial grid distance array.
+            U (np.ndarray): Array of conservative variables, including ghost cells.
+                            Shape: (num_vars, n_cells + 2 * n_ghost).
+            dx (np.ndarray): Array of grid cell widths.
 
         Returns:
-            res (np.ndarray): residual flux at the interface
+            np.ndarray: The residual of the numerical fluxes for each cell.
         """
         return self.reconst_dicts[self.name](U, dx)
 
     def compute_slopes(self, Q: np.ndarray, dx: np.ndarray) -> np.ndarray:
         """
-        Compute slopes for all reconstruction methods.
+        Computes the limited slopes of the variable Q for MUSCL reconstruction.
 
         Args:
-            Q (np.ndarray): Either primitive or conservative variables, shape (num_vars, n_cells_total, ...).
-            dx (np.ndarray): Spatial grid distance array.
+            Q (np.ndarray): The variable array (primitive or conservative) to compute
+                            slopes for. Shape: (num_vars, n_cells_total).
+            dx (np.ndarray): Array of grid cell widths.
 
         Returns:
-            dQ: (np.ndarray), slope of the left/right slopes for each cell
+            np.ndarray: The limited slope for each variable in each cell.
         """
         N = Q.shape[1]
         dQ = np.zeros((self.n_vars, N))
@@ -97,20 +132,23 @@ class Reconstruction:
 
         return dQ
 
-    # ------------------------------------ #
-    # compute and limit slopes for all cells
-    # ------------------------------------ #
+    # --------------------------------------------------- #
+    # Reconstruction and Flux Calculation Methods       #
+    # --------------------------------------------------- #
 
-    def PIECEWISE_CONSTANT(self, U: np.ndarray, dx: np.ndarray) -> np.ndarray:
+    def piecewise_constant(self, U: np.ndarray, dx: np.ndarray) -> np.ndarray:
         """
-        Piecewise constant reconstruction.
+        First-order piecewise constant reconstruction (Godunov's method).
+
+        The value at the interface is simply the cell-average value from the
+        upwind side, leading to a first-order accurate scheme.
 
         Args:
-            U (np.ndarray): Conservative variables, shape (num_vars, n_cells + 2*n_ghost, ...).
-            dx (np.ndarray): Spatial grid distance array.
+            U (np.ndarray): Conservative variables array with ghost cells.
+            dx (np.ndarray): Grid cell widths.
 
         Returns:
-            res (np.ndarray): residual flux at the interface
+            np.ndarray: The flux residual for each cell.
         """
         N = U.shape[1]
         Flux = np.zeros((self.n_vars, N - 1))
@@ -144,17 +182,19 @@ class Reconstruction:
 
         return res
 
-    def MUSCL(self, U: np.ndarray, dx: np.ndarray) -> np.ndarray:
+    def muscl(self, U: np.ndarray, dx: np.ndarray) -> np.ndarray:
         """
-        MUSCL reconstruction with slope limiting.
+        Second-order MUSCL reconstruction with slope limiting.
+
+        This method reconstructs the solution to be piecewise linear within each
+        cell, achieving second-order accuracy in space.
 
         Args:
-            U (np.ndarray): Conservative variables, shape (num_vars, n_cells + 2*n_ghost, ...).
-            dx (np.ndarray): Spatial grid distance array.
-            n_ghost (int): Number of ghost cells per side.
+            U (np.ndarray): Conservative variables array with ghost cells.
+            dx (np.ndarray): Grid cell widths.
 
         Returns:
-            np.ndarray: (U_L, U_R), left and right states, each shape (num_vars, n_cells + 2*n_ghost - 1, ...).
+            np.ndarray: The flux residual for each cell.
         """
         N = U.shape[1]
         Flux = np.zeros((self.n_vars, N - 1))
@@ -223,19 +263,13 @@ class Reconstruction:
 
         return res
 
-    def PPM(self, U: np.ndarray, dx: np.ndarray) -> np.ndarray:
+    def ppm(self, U: np.ndarray, dx: np.ndarray) -> np.ndarray:
         """
-        Piecewise Parabolic Method (PPM) reconstruction (conservative variables).
-          Constructs parabolic profiles in each cell, applies monotonicity constraints and slope limiting.
-          Third-order accurate in smooth regions with full stencil, robust near discontinuities.
+        Placeholder for the Piecewise Parabolic Method (PPM) reconstruction.
 
         Args:
-            U (np.ndarray): Conservative variables, shape (num_vars, n_cells + 2*n_ghost, ...).
-            dx (np.ndarray): Spatial grid distance array.
-            imod_delta (bool): whether to apply the modified delta method (default: False).
-
-        Returns:
-            np.ndarray: (U_L, U_R), left and right states, each shape (num_vars, n_cells + 2*n_ghost - 1, ...).
+            U (np.ndarray): Conservative variables array.
+            dx (np.ndarray): Grid cell widths.
 
         Raises:
             ValueError: If n_ghost is insufficient or dx <= 0.
@@ -313,3 +347,16 @@ class Reconstruction:
         else:
             # Placeholder for 2D/3D PPM reconstruction
             raise NotImplementedError("2D/3D PPM reconstruction not yet implemented")
+
+    def weno(self, U: np.ndarray, dx: np.ndarray) -> np.ndarray:
+        """
+        Placeholder for the Weighted Essentially Non-Oscillatory (WENO) reconstruction.
+
+        Args:
+            U (np.ndarray): Conservative variables array.
+            dx (np.ndarray): Grid cell widths.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
+        """
+        raise NotImplementedError("WENO reconstruction is not yet implemented.")
