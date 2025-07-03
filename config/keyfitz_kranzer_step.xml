@@ -12,28 +12,27 @@
 		<stretch_factor>1.0</stretch_factor>
 	</mesh>
 	<equation>
-		<type>shallow_water</type>
-		<g>9.81</g>
+		<type>keyfitz_kranzer</type>
 	</equation>
 	<boundary_conditions>
 		<type>neumann</type>
 		<left_values>
-			<height>0.0</height>
-			<velocity>0.0</velocity>
+			<u>0.0</u>
+			<v>0.0</v>
 		</left_values>
 		<right_values>
-			<height>0.0</height>
-			<velocity>0.0</velocity>
+			<u>0.0</u>
+			<v>0.0</v>
 		</right_values>
 	</boundary_conditions>
 	<initial_conditions>
 		<left>
-			<height>1.0</height>
-			<velocity>0.0</velocity>
+			<u>1.0</u>
+			<v>0.5</v>
 		</left>
 		<right>
-			<height>0.1</height>
-			<velocity>0.0</velocity>
+			<u>0.5</u>
+			<v>0.2</v>
 		</right>
 		<split>0.5</split>
 	</initial_conditions>

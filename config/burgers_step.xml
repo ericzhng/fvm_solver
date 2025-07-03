@@ -12,35 +12,30 @@
 		<stretch_factor>1.0</stretch_factor>
 	</mesh>
 	<equation>
-		<type>shallow_water</type>
-		<g>9.81</g>
+		<type>burgers</type>
 	</equation>
 	<boundary_conditions>
-		<type>neumann</type>
+		<type>periodic</type>
 		<left_values>
-			<height>0.0</height>
 			<velocity>0.0</velocity>
 		</left_values>
 		<right_values>
-			<height>0.0</height>
 			<velocity>0.0</velocity>
 		</right_values>
 	</boundary_conditions>
 	<initial_conditions>
 		<left>
-			<height>1.0</height>
-			<velocity>0.0</velocity>
+			<velocity>1.2</velocity>
 		</left>
 		<right>
-			<height>0.1</height>
-			<velocity>0.0</velocity>
+			<velocity>0.5</velocity>
 		</right>
-		<split>0.5</split>
+		<split>0.2</split>
 	</initial_conditions>
 	<solver_settings>
 		<time_integration>euler</time_integration>
 		<ghost_cells>2</ghost_cells>
-		<T>0.1</T>
+		<T>0.2</T>
 		<cfl>0.2</cfl>
 		<flux>roe</flux>
 		<reconstruction>muscl</reconstruction>

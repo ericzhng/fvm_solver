@@ -12,28 +12,25 @@
 		<stretch_factor>1.0</stretch_factor>
 	</mesh>
 	<equation>
-		<type>shallow_water</type>
-		<g>9.81</g>
+		<type>traffic_flow</type>
+		<rhoMax>9.81</rhoMax>
+		<vMax>9.81</vMax>
 	</equation>
 	<boundary_conditions>
 		<type>neumann</type>
 		<left_values>
-			<height>0.0</height>
-			<velocity>0.0</velocity>
+			<density>0.0</density>
 		</left_values>
 		<right_values>
-			<height>0.0</height>
-			<velocity>0.0</velocity>
+			<density>0.0</density>
 		</right_values>
 	</boundary_conditions>
 	<initial_conditions>
 		<left>
-			<height>1.0</height>
-			<velocity>0.0</velocity>
+			<density>1.0</density>
 		</left>
 		<right>
-			<height>0.1</height>
-			<velocity>0.0</velocity>
+			<density>0.0</density>
 		</right>
 		<split>0.5</split>
 	</initial_conditions>
