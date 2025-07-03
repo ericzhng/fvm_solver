@@ -12,7 +12,7 @@ class Reconstruction:
     Maintains ghost cells in reconstructed states.
 
     Args:
-        eqn_obj (EquationBase): System for state conversions.
+        equation (EquationBase): System for state conversions.
         str_domain (str): Reconstruction in primitive or conservative.
         str_flux (str): Flux method ('lax_friedrichs', 'rusanov', 'force', 'hll', 'hllc', 'roe').
         str_limiter (str, optional): Slope limiter type ('minmod', 'superbee', 'vanleer', etc.).
@@ -29,17 +29,17 @@ class Reconstruction:
         limiter_beta: float = 1.5,
     ):
         if not isinstance(eqn_obj, EqnBase):
-            raise TypeError("eqn_obj must be an EquationBase instance")
+            raise TypeError("equation must be an EquationBase instance")
 
-        self.eqn_obj = eqn_obj
+        self.equation = eqn_obj
         self.name = str_reconst
         self.in_primitive_domain = str_domain == "primitive"
         self.limiter_obj = (
             Limiter(str_limiter, beta=limiter_beta) if str_limiter else None
         )
-        self.flux_obj = Flux(eqn_obj, str_flux, lambda_max=1.0)
+        self.flux_obj = Flux(self.equation, str_flux, lambda_max=1.0)
 
-        self.n_vars = self.eqn_obj.num_vars
+        self.n_vars = self.equation.num_vars
 
         self.reconst_dicts = {
             "constant": self.PIECEWISE_CONSTANT,  # Lax-Friedrichs
@@ -161,7 +161,7 @@ class Reconstruction:
         res = np.zeros((self.n_vars, N))
 
         if self.in_primitive_domain:
-            W = self.eqn_obj.to_primitive_batch(U)
+            W = self.equation.to_primitive_batch(U)
             slopes = self.compute_slopes(W, dx)
 
             # iterate through 1 to N-3, then separately deal with left/right edges
@@ -170,8 +170,8 @@ class Reconstruction:
                 c = i
                 W_L = W[:, c] + slopes[:, c] * dx[c] / 2.0
                 W_R = W[:, c + 1] - slopes[:, c + 1] * dx[c + 1] / 2.0
-                U_L = self.eqn_obj.to_conservative(W_L)
-                U_R = self.eqn_obj.to_conservative(W_R)
+                U_L = self.equation.to_conservative(W_L)
+                U_R = self.equation.to_conservative(W_R)
                 Flux[:, i] = self.flux_obj.flux_func(U_L, U_R)
 
                 # Compute fluxes: assumes U_L and U_R are defined as the left and right states at each interface
@@ -181,16 +181,16 @@ class Reconstruction:
             # deal with leftmost face 0
             W_R = W[:, 1] - slopes[:, 1] * dx[1] / 2.0
             W_L = W_R
-            U_L = self.eqn_obj.to_conservative(W_L)
-            U_R = self.eqn_obj.to_conservative(W_R)
+            U_L = self.equation.to_conservative(W_L)
+            U_R = self.equation.to_conservative(W_R)
             Flux[:, 0] = self.flux_obj.flux_func(U_L, U_R)
             res[:, 1] = res[:, 1] - Flux[:, 0] / dx[0]
 
             # deal with rightmost face N-2
             W_L = W[:, N - 2] + slopes[:, N - 2] * dx[N - 2] / 2.0
             W_R = W_L
-            U_L = self.eqn_obj.to_conservative(W_L)
-            U_R = self.eqn_obj.to_conservative(W_R)
+            U_L = self.equation.to_conservative(W_L)
+            U_R = self.equation.to_conservative(W_R)
             Flux[:, N - 2] = self.flux_obj.flux_func(U_L, U_R)
             res[:, N - 2] = res[:, N - 2] + Flux[:, N - 2] / dx[N - 2]
 
@@ -270,7 +270,7 @@ class Reconstruction:
 
                 # store interface states
                 E = np.full((n_cells_total - 1), np.nan)
-
+                imod_delta = True
                 if imod_delta:
                     # Note: the following formula is a modification of the original PPM to include delta_m_A
                     for i in range(1, n_cells_total - 2):

@@ -123,6 +123,12 @@ def get_text(
     return default
 
 
+def parse_values_list(parent: Optional[ET.Element]) -> np.ndarray:
+    if parent is not None:
+        return np.array([float(v.text) for v in parent if v.text is not None])
+    return np.array([])
+
+
 def parse_xml_config(filename: str) -> Dict[str, Any]:
     """
     Parse simulation configuration from XML file.
@@ -156,7 +162,7 @@ def parse_xml_config(filename: str) -> Dict[str, Any]:
     config["equation"] = get_text(root.find("equation/type"), default="euler")
     config["gamma"] = (
         get_text(root.find("equation/gamma"), default=1.4, cast=float)
-        if config["equation"] == "euler"
+        if config["equation"] == "euler" or config["equation"] == "isentropic"
         else 1.4
     )
     config["k"] = (
@@ -164,11 +170,33 @@ def parse_xml_config(filename: str) -> Dict[str, Any]:
         if config["equation"] == "isentropic"
         else 1.0
     )
+    config["g"] = (
+        get_text(root.find("equation/g"), default=9.82, cast=float)
+        if config["equation"] == "shallow_water"
+        else 9.82
+    )
+    config["speed"] = (
+        get_text(root.find("equation/speed"), default=1.0, cast=float)
+        if config["equation"] == "advection"
+        else 1.0
+    )
+    config["rhoMax"] = (
+        get_text(root.find("equation/rhoMax"), default=1.0, cast=float)
+        if config["equation"] == "traffic_flow"
+        else 1.0
+    )
+    config["vMax"] = (
+        get_text(root.find("equation/vMax"), default=10.0, cast=float)
+        if config["equation"] == "traffic_flow"
+        else 10.0
+    )
 
     # Boundary conditions
-    config["bc_type"] = get_text(
-        root.find("boundary_conditions/type"), default="dirichlet"
-    )
+    config["bc"] = {
+        "type": get_text(root.find("boundary_conditions/type"), default="dirichlet"),
+        "left": parse_values_list(root.find("boundary_conditions/left_values")),
+        "right": parse_values_list(root.find("boundary_conditions/right_values")),
+    }
 
     # ghsot cells
     config["ghost_cells"] = get_text(
@@ -180,25 +208,11 @@ def parse_xml_config(filename: str) -> Dict[str, Any]:
         root.find("solver_settings/time_integration"), default="euler"
     )
 
-    def parse_values_list(parent: Optional[ET.Element]) -> np.ndarray:
-        if parent is not None:
-            return np.array([float(v.text) for v in parent if v.text is not None])
-        return np.array([])
-
-    config["left_values"] = parse_values_list(
-        root.find("boundary_conditions/left_values")
-    )
-    config["right_values"] = parse_values_list(
-        root.find("boundary_conditions/right_values")
-    )
-
     # Initial conditions
-    ic_left_elem = root.find("initial_conditions/left")
-    ic_right_elem = root.find("initial_conditions/right")
     ic_split_elem = root.find("initial_conditions/split")
     config["ic"] = {
-        "left": parse_values_list(ic_left_elem),
-        "right": parse_values_list(ic_right_elem),
+        "left": parse_values_list(root.find("initial_conditions/left")),
+        "right": parse_values_list(root.find("initial_conditions/right")),
         "split": (
             float(ic_split_elem.text)
             if ic_split_elem is not None and ic_split_elem.text is not None

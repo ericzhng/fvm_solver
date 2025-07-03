@@ -12,7 +12,7 @@ class BoundaryCondition:
     ensuring accurate numerical solutions for hyperbolic PDEs.
 
     Attributes:
-        equation_system (EquationBase): The equation system for state conversions.
+        eqn_obj (EquationBase): The equation system for state conversions.
         bc_kind (str): The type of boundary condition ('dirichlet', 'neumann', 'periodic', 'reflective').
         grid (np.ndarray): The spatial grid (1D array).
         left_boundary_state (np.ndarray): State or gradient at the left boundary.
@@ -21,7 +21,7 @@ class BoundaryCondition:
 
     def __init__(
         self,
-        equation_system: EqnBase,
+        eqn_obj: EqnBase,
         bc_kind: str,
         grid: np.ndarray,
         n_ghost: int,
@@ -32,20 +32,20 @@ class BoundaryCondition:
         Initialize the boundary condition handler.
 
         Args:
-            equation_system (EquationBase): The system for conservative/primitive state conversions.
+            eqn_obj (EquationBase): The system for conservative/primitive state conversions.
             bc_kind (str): Boundary condition type. One of {'dirichlet', 'neumann', 'periodic', 'reflective'}.
             grid (np.ndarray): 1D spatial grid.
             left_boundary_state (np.ndarray, optional): State or gradient at the left boundary. Defaults to zeros.
             right_boundary_state (np.ndarray, optional): State or gradient at the right boundary. Defaults to zeros.
 
         Raises:
-            TypeError: If equation_system is not an EquationBase instance.
+            TypeError: If eqn_obj is not an EquationBase instance.
             ValueError: If bc_kind is not a supported type.
         """
-        if not isinstance(equation_system, EqnBase):
-            raise TypeError("equation_system must be an EquationBase instance")
+        if not isinstance(eqn_obj, EqnBase):
+            raise TypeError("eqn_obj must be an EquationBase instance")
 
-        self.equation_system = equation_system
+        self.equation = eqn_obj
         self.bc_kind = bc_kind.lower()
 
         self.grid = grid
@@ -56,12 +56,12 @@ class BoundaryCondition:
         self.left_boundary_state = (
             left_boundary_state
             if left_boundary_state is not None
-            else np.zeros(equation_system.num_vars)
+            else np.zeros(self.equation.num_vars)
         )
         self.right_boundary_state = (
             right_boundary_state
             if right_boundary_state is not None
-            else np.zeros(equation_system.num_vars)
+            else np.zeros(self.equation.num_vars)
         )
 
         valid_bcs = {"dirichlet", "neumann", "periodic", "reflective"}
@@ -85,9 +85,9 @@ class BoundaryCondition:
         """
         if self.n_ghost < 1:
             raise ValueError("n_ghost must be at least 1")
-        if U_aug.ndim < 2 or U_aug.shape[0] != self.equation_system.num_vars:
+        if U_aug.ndim < 2 or U_aug.shape[0] != self.equation.num_vars:
             raise ValueError(
-                f"U must have shape ({self.equation_system.num_vars}, n_cells, ...)"
+                f"U must have shape ({self.equation.num_vars}, n_cells, ...)"
             )
 
         n_ghost = self.n_ghost
@@ -101,35 +101,31 @@ class BoundaryCondition:
             U_aug[:, n_cells + n_ghost :] = U[:, 1]
 
         elif self.bc_kind == "neumann":
-            W_left = self.equation_system.to_primitive(U[:, 0])
-            W_right = self.equation_system.to_primitive(U[:, -1])
+            W_left = self.equation.to_primitive(U[:, 0])
+            W_right = self.equation.to_primitive(U[:, -1])
             for i in range(n_ghost):
                 Wl = W_left - (n_ghost - i) * dx[0] * self.left_boundary_state
-                U_aug[:, i] = self.equation_system.to_conservative(Wl)
+                U_aug[:, i] = self.equation.to_conservative(Wl)
 
                 Wr = W_right + (i + 1) * dx[-1] * self.right_boundary_state
-                U_aug[:, n_cells + n_ghost + i - 1] = (
-                    self.equation_system.to_conservative(Wr)
-                )
+                U_aug[:, n_cells + n_ghost + i - 1] = self.equation.to_conservative(Wr)
 
         elif self.bc_kind == "periodic":
             U_aug[:, :n_ghost] = U_aug[:, n_cells : n_cells + n_ghost]
             U_aug[:, n_cells + n_ghost :] = U_aug[:, n_ghost : 2 * n_ghost]
 
         elif self.bc_kind == "reflective":
-            if self.equation_system.vel_idx is None:
+            if self.equation.vel_idx is None:
                 raise ValueError("Reflective BC requires a valid vel_idx")
 
-            W_left = self.equation_system.to_primitive(U[:, 0])
-            W_right = self.equation_system.to_primitive(U[:, -1])
+            W_left = self.equation.to_primitive(U[:, 0])
+            W_right = self.equation.to_primitive(U[:, -1])
             for i in range(n_ghost):
                 Wl = W_left.copy()
-                Wl[self.equation_system.vel_idx] = -Wl[self.equation_system.vel_idx]
-                U_aug[:, i] = self.equation_system.to_conservative(Wl)
+                Wl[self.equation.vel_idx] = -Wl[self.equation.vel_idx]
+                U_aug[:, i] = self.equation.to_conservative(Wl)
                 Wr = W_right.copy()
-                Wr[self.equation_system.vel_idx] = -Wr[self.equation_system.vel_idx]
-                U_aug[:, n_cells + n_ghost + i - 1] = (
-                    self.equation_system.to_conservative(Wr)
-                )
+                Wr[self.equation.vel_idx] = -Wr[self.equation.vel_idx]
+                U_aug[:, n_cells + n_ghost + i - 1] = self.equation.to_conservative(Wr)
 
         return U_aug

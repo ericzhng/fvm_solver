@@ -27,7 +27,7 @@ class Solver:
         """Initialize the solver for 1D/2D/3D hyperbolic systems.
 
         Args:
-            eqn_obj (EquationBase): The equation system to solve.
+            equation (EquationBase): The equation system to solve.
             bc_obj (BoundaryCondition): Boundary condition handler.
             grid (np.ndarray): Spatial grid points (1D) or meshgrid (2D/3D).
             cfl (float): CFL number for time step control.
@@ -36,11 +36,11 @@ class Solver:
             output_filename (str): File for ASCII solution output.
 
         Raises:
-            TypeError: If eqn_obj or bc_obj is invalid.
+            TypeError: If equation or bc_obj is invalid.
             ValueError: If flux, reconstruction, cfl, or max_iterations is invalid.
         """
         if not isinstance(eqn_obj, EqnBase):
-            raise TypeError("eqn_obj must be an EquationBase instance")
+            raise TypeError("equation must be an EquationBase instance")
         if not isinstance(bc_obj, BoundaryCondition):
             raise TypeError("bc_obj must be a BoundaryCondition instance")
         if not isinstance(mesh_obj, np.ndarray):
@@ -57,15 +57,15 @@ class Solver:
 
         self.bc_obj = bc_obj
         self.mesh_obj = mesh_obj
-        self.eqn_obj = eqn_obj
+        self.equation = eqn_obj
         self.reconst_obj = reconst_obj
         self.cfl = cfl
         self.max_iterations = max_iterations
         self.convergence_tol = convergence_tol
         self.output_filename = output_filename
 
-        self.num_vars = self.eqn_obj.num_vars
-        self.variable_names = self.eqn_obj.var_names
+        self.num_vars = self.equation.num_vars
+        self.variable_names = self.equation.var_names
 
         n_cells = self.mesh_obj.size - 1
 
@@ -87,7 +87,7 @@ class Solver:
 
         print("========================================")
         print("Solver Information:")
-        print(f"  Equation system: {type(self.eqn_obj).__name__}")
+        print(f"  Equation system: {type(self.equation).__name__}")
         print(
             f"  Number of variables: {self.num_vars} ({', '.join(self.variable_names)})"
         )
@@ -172,14 +172,12 @@ class Solver:
 
         dx = self.dx_aug
 
-        W_aug = self.eqn_obj.to_primitive_batch(U_aug)
+        W_aug = self.equation.to_primitive_batch(U_aug)
         min_value = float("inf")
 
         for i in range(self.n_ghost, self.n_cells + self.n_ghost):
             value = dx[i] / max(
-                abs(W_aug[self.eqn_obj.vel_idx, i])
-                + self.eqn_obj.sound_speed(U_aug[:, i]),
-                self.eqn_obj.min_value,
+                abs(self.equation.max_eigenvalue(U_aug[:, i])), self.equation.min_value
             )
             min_value = min(min_value, value)
 
@@ -201,7 +199,7 @@ class Solver:
             t (float): Current time.
             step (int): Time step index.
         """
-        W = self.eqn_obj.to_primitive_batch(U)
+        W = self.equation.to_primitive_batch(U)
         grid = self.mesh_obj
         with open(self.output_filename, "a") as f:
             f.write(f"# Step {step}, Time {t:.6f}\n")
@@ -317,7 +315,7 @@ class Solver:
             # Print progress
             percent = (t / T * 100) if T != 0 else 0.0
             print(
-                f"\rStep {n:03d} | Time: {t:.4f} / {T:.3f} ({percent:5.1f}%) | Δt = {dt:.4f} s | Residual {residual * 100:5.2f} %",
+                f"\rStep {n:03d} | Δt = {dt:.4f} s | Residual {residual * 100:5.2f} % | Time: {t:.3f} / {T:.2f} s ({percent:4.1f}%)",
                 end="\n",
                 flush=True,
             )
@@ -334,7 +332,7 @@ class Solver:
                 print(f"Converged at step {n}, residual {residual:.6e}")
                 break
 
-        print(f"Simulation completed: {n} steps, final time {t:.6f}")
+        print(f"\nSimulation completed after {n} steps, final time {t:.6f} s")
         return np.array(history), t
 
     def plot_solution(self, history: np.ndarray, t: float, variable: str = ""):
@@ -357,7 +355,7 @@ class Solver:
             )
 
         U_final = history[-1]
-        W_final = self.eqn_obj.to_primitive_batch(U_final)
+        W_final = self.equation.to_primitive_batch(U_final)
 
         if x.ndim == 1:  # 1D
             xmid = (x[1:] + x[:-1]) / 2
