@@ -42,7 +42,7 @@
 		<ghost_cells>2</ghost_cells>
 		<T>0.1</T>
 		<cfl>0.2</cfl>
-		<flux>roe</flux>
+		<flux> </flux>
 		<reconstruction>muscl</reconstruction>
 		<reconstruction_vars>conservative</reconstruction_vars>
 		<limiter>minmod</limiter>

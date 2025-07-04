@@ -183,6 +183,55 @@ class EqnBase(ABC):
         """
         pass
 
+    def roe_numerical_flux(
+        self, U_L: np.ndarray, U_R: np.ndarray, epsilon=1e-6, delta=1e-6
+    ) -> np.ndarray:
+        """
+        Compute Roe flux for a general 1D hyperbolic conservation law.
+
+        Parameters:
+        u_L, u_R : ndarray, left and right state vectors
+        flux_func : function, computes flux f(u)
+        epsilon : float, perturbation for finite difference Jacobian
+        delta : float, entropy fix parameter
+
+        Returns:
+        F : ndarray, Roe flux at interface
+        """
+        m = self.num_vars  # Number of components
+        u_avg = 0.5 * (U_L + U_R)  # Simple average for Jacobian evaluation
+
+        # Numerical Jacobian
+        A = np.zeros((m, m))
+        for j in range(m):
+            u_plus = u_avg.copy()
+            u_minus = u_avg.copy()
+            u_plus[j] += epsilon
+            u_minus[j] -= epsilon
+            A[:, j] = (self.compute_flux(u_plus) - self.compute_flux(u_minus)) / (
+                2 * epsilon
+            )
+
+        # Eigenstructure
+        eigenvalues, R = np.linalg.eig(A)
+        L = np.linalg.inv(R)  # Left eigenvectors
+
+        # Wave strengths
+        delta_u = U_R - U_L
+        alpha = L @ delta_u
+
+        # Entropy fix
+        abs_eigenvalues = np.array([max(abs(lam), delta) for lam in eigenvalues])
+
+        # Roe flux
+        F_avg = 0.5 * (self.compute_flux(U_L) + self.compute_flux(U_R))
+        correction = 0.5 * sum(
+            abs_eigenvalues[k] * alpha[k] * R[:, k] for k in range(m)
+        )
+        F = F_avg - correction
+
+        return F
+
     @abstractmethod
     def ausm_flux(self, U_L: np.ndarray, U_R: np.ndarray) -> np.ndarray:
         """

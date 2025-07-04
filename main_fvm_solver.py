@@ -48,7 +48,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="config/isentropic_density_jump.xml",
+        default="config/euler_sod_shock_tube.xml",
         help="Path to the XML configuration file for the simulation.",
     )
     args = parser.parse_args()

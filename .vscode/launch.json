@@ -11,7 +11,7 @@
             "program": "${file}",
             "args": [
                 "--config",
-                "config/keyfitz_kranzer_step.xml"
+                "config/traffic_flow_step.xml"
             ],
             "console": "integratedTerminal"
         }

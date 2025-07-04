@@ -1,13 +1,12 @@
 # read sedov.dat and solution.dat files
 import numpy as np
 import matplotlib.pyplot as plt
-from src.utils import read_solution
+from src.solution import read_solution
 
 
-def sod_analytic(x, t, gamma=1.4, 
-                left_state=(1.0, 0.0, 1.0), 
-                right_state=(0.125, 0.0, 0.1), 
-                x0=0.5):
+def sod_analytic(
+    x, t, gamma=1.4, left_state=(1.0, 0.0, 1.0), right_state=(0.125, 0.0, 0.1), x0=0.5
+):
     """
     Analytic solution for the Sod shock tube problem.
     Returns density, velocity, pressure arrays at positions x and time t.
@@ -26,14 +25,18 @@ def sod_analytic(x, t, gamma=1.4,
             A = np.sqrt((gamma + 1) / (2 * gamma) * p / p_l + (gamma - 1) / (2 * gamma))
             return (p - p_l) / (rho_l * c_l * A)
         else:
-            return (2 * c_l / (gamma - 1)) * ((p / p_l) ** ((gamma - 1) / (2 * gamma)) - 1)
+            return (2 * c_l / (gamma - 1)) * (
+                (p / p_l) ** ((gamma - 1) / (2 * gamma)) - 1
+            )
 
     def fR(p):
         if p > p_r:
             A = np.sqrt((gamma + 1) / (2 * gamma) * p / p_r + (gamma - 1) / (2 * gamma))
             return (p - p_r) / (rho_r * c_r * A)
         else:
-            return (2 * c_r / (gamma - 1)) * ((p / p_r) ** ((gamma - 1) / (2 * gamma)) - 1)
+            return (2 * c_r / (gamma - 1)) * (
+                (p / p_r) ** ((gamma - 1) / (2 * gamma)) - 1
+            )
 
     # Solve for p_star using Newton-Raphson
     def find_p_star():
@@ -55,23 +58,31 @@ def sod_analytic(x, t, gamma=1.4,
 
     # Compute densities in star region
     if p_star > p_l:
-        rho_star_l = rho_l * ((p_star / p_l + (gamma - 1) / (gamma + 1)) /
-                              ((gamma - 1) / (gamma + 1) * p_star / p_l + 1))
+        rho_star_l = rho_l * (
+            (p_star / p_l + (gamma - 1) / (gamma + 1))
+            / ((gamma - 1) / (gamma + 1) * p_star / p_l + 1)
+        )
     else:
         rho_star_l = rho_l * (p_star / p_l) ** (1 / gamma)
     if p_star > p_r:
-        rho_star_r = rho_r * ((p_star / p_r + (gamma - 1) / (gamma + 1)) /
-                              ((gamma - 1) / (gamma + 1) * p_star / p_r + 1))
+        rho_star_r = rho_r * (
+            (p_star / p_r + (gamma - 1) / (gamma + 1))
+            / ((gamma - 1) / (gamma + 1) * p_star / p_r + 1)
+        )
     else:
         rho_star_r = rho_r * (p_star / p_r) ** (1 / gamma)
 
     # Compute wave speeds
     if p_star > p_l:
-        s_l = u_l - c_l * np.sqrt((gamma + 1) / (2 * gamma) * p_star / p_l + (gamma - 1) / (2 * gamma))
+        s_l = u_l - c_l * np.sqrt(
+            (gamma + 1) / (2 * gamma) * p_star / p_l + (gamma - 1) / (2 * gamma)
+        )
     else:
         s_l = u_l - c_l
     if p_star > p_r:
-        s_r = u_r + c_r * np.sqrt((gamma + 1) / (2 * gamma) * p_star / p_r + (gamma - 1) / (2 * gamma))
+        s_r = u_r + c_r * np.sqrt(
+            (gamma + 1) / (2 * gamma) * p_star / p_r + (gamma - 1) / (2 * gamma)
+        )
     else:
         s_r = u_r + c_r
 
@@ -116,6 +127,7 @@ def sod_analytic(x, t, gamma=1.4,
 
     return rho, u, p
 
+
 def compare_sod_analytic_to_solution(solution_file, x0=0.5):
     """
     Compare the analytic Sod shock tube solution to the numerical solution.
@@ -144,36 +156,38 @@ def compare_sod_analytic_to_solution(solution_file, x0=0.5):
     # Plot density
     plt.figure(figsize=(12, 8))
     plt.subplot(3, 1, 1)
-    plt.plot(x, rho_num, 'b-', label='Numerical')
-    plt.plot(x, rho_ana, 'r--', label='Analytic')
-    plt.ylabel('Density')
+    plt.plot(x, rho_num, "b-", label="Numerical")
+    plt.plot(x, rho_ana, "r--", label="Analytic")
+    plt.ylabel("Density")
     plt.legend()
     plt.grid(True)
 
     # Plot velocity
     plt.subplot(3, 1, 2)
-    plt.plot(x, u_num, 'b-', label='Numerical')
-    plt.plot(x, u_ana, 'r--', label='Analytic')
-    plt.ylabel('Velocity')
+    plt.plot(x, u_num, "b-", label="Numerical")
+    plt.plot(x, u_ana, "r--", label="Analytic")
+    plt.ylabel("Velocity")
     plt.legend()
     plt.grid(True)
 
     # Plot pressure
     plt.subplot(3, 1, 3)
-    plt.plot(x, p_num, 'b-', label='Numerical')
-    plt.plot(x, p_ana, 'r--', label='Analytic')
-    plt.xlabel('x')
-    plt.ylabel('Pressure')
+    plt.plot(x, p_num, "b-", label="Numerical")
+    plt.plot(x, p_ana, "r--", label="Analytic")
+    plt.xlabel("x")
+    plt.ylabel("Pressure")
     plt.legend()
     plt.grid(True)
 
-    plt.suptitle(f'Sod Shock Tube: Numerical vs Analytic at t={time:.3f}')
+    plt.suptitle(f"Sod Shock Tube: Numerical vs Analytic at t={time:.3f}")
     plt.tight_layout()
     plt.show()
 
+
 def main():
-    solution_file = 'solution.dat'  # Path to your solution.dat file
+    solution_file = "solution.dat"  # Path to your solution.dat file
     compare_sod_analytic_to_solution(solution_file, x0=0.5)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

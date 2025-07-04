@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from .equation.equation_base import EqnBase
 from .boundary import BoundaryCondition
 from .reconstruction import Reconstruction
+from .solution import write_solution_step
 
 
 class Solver:
@@ -176,9 +177,7 @@ class Solver:
         """
         dx = self.dx_aug
 
-        W_aug = self.equation.to_primitive_batch(U_aug)
         min_value = float("inf")
-
         for i in range(self.n_ghost, self.n_cells + self.n_ghost):
             value = dx[i] / max(
                 abs(self.equation.max_eigenvalue(U_aug[:, i])), self.equation.min_value
@@ -194,36 +193,6 @@ class Solver:
             ),
         )
         return adaptive_cfl * min_value
-
-    def save_solution(self, U: np.ndarray, t: float, step: int):
-        """
-        Saves the current solution state to the output file.
-
-        Args:
-            U (np.ndarray): The conservative variables for the main domain.
-            t (float): The current simulation time.
-            step (int): The current iteration number.
-        """
-        W = self.equation.to_primitive_batch(U)
-        grid = self.mesh_obj
-        with open(self.output_filename, "a") as f:
-            f.write(f"# Step {step}, Time {t:.6f}\n")
-            if U.ndim == 2:  # 1D
-                xmid = (grid[1:] + grid[:-1]) / 2
-                f.write("# x " + " ".join(self.variable_names) + "\n")
-                for i in range(U.shape[1]):
-                    f.write(
-                        f"{xmid[i]:.6e} " + " ".join(f"{w:.6e}" for w in W[:, i]) + "\n"
-                    )
-            else:  # 2D/3D
-                f.write("# Structured grid output\n")
-                for idx in np.ndindex(U.shape[1:]):
-                    f.write(
-                        f"{' '.join(str(i) for i in idx)} "
-                        + " ".join(f"{w:.6e}" for w in W[:, idx])
-                        + "\n"
-                    )
-            f.write("\n")
 
     def solve(
         self, U0: np.ndarray, T: float, time_integration_method: str
@@ -309,7 +278,13 @@ class Solver:
             U = U_new
 
             U_save = self.de_augment_vars(U)
-            self.save_solution(U_save, t, n)
+            write_solution_step(
+                self.output_filename,
+                self.equation.var_names,
+                self.mesh_obj,
+                self.equation.to_primitive_batch(U_save),
+                t,
+            )
             history.append(U_save)
 
             # Print progress

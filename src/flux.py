@@ -223,4 +223,4 @@ class Flux:
         Returns:
             np.ndarray: The Roe numerical flux.
         """
-        return self.eqn_obj.roe_flux(U_L, U_R)
+        return self.eqn_obj.roe_numerical_flux(U_L, U_R)
